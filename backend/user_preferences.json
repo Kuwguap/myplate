@@ -1,0 +1,53 @@
+{
+  "user_settings": {
+    "6197000205": {
+      "selectionMode": "auto",
+      "lastUsedSlot": "1",
+      "slots": {
+        "1": {
+          "templateId": "4",
+          "templateName": "NONNJTEMP",
+          "templateDescription": "",
+          "plate": {
+            "base": "066284V",
+            "current": "066521V"
+          },
+          "car": {
+            "base": "2200198173",
+            "current": "2200256036"
+          }
+        },
+        "2": {
+          "templateId": null,
+          "templateName": null,
+          "templateDescription": null,
+          "plate": null,
+          "car": null
+        }
+      }
+    },
+    "1253370362": {
+      "selectionMode": "auto",
+      "lastUsedSlot": "1",
+      "slots": {
+        "1": {
+          "templateId": "5",
+          "templateName": "NJTEMP",
+          "templateDescription": "",
+          "plate": {
+            "base": "999324V",
+            "current": "999730V"
+          },
+          "car": null
+        },
+        "2": {
+          "templateId": null,
+          "templateName": null,
+          "templateDescription": null,
+          "plate": null,
+          "car": null
+        }
+      }
+    }
+  }
+}

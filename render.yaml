@@ -1,0 +1,35 @@
+# Render Blueprint: Node API + Python Telegram bot
+# Deploy from repo root; set TELEGRAM_BOT_TOKEN and FRONTEND_URL in Render Dashboard after first deploy.
+
+services:
+  # Backend API (Node/Express) - templates, documents, PDF generation, telegram webhook
+  - type: web
+    runtime: node
+    name: pdf-generator-api
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        sync: false  # Set in Dashboard, e.g. https://your-app.vercel.app
+      # PORT is set automatically by Render
+
+  # Python Telegram bot (background worker)
+  - type: worker
+    runtime: python
+    name: pdf-generator-telegram-bot
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false  # Set in Dashboard (from BotFather)
+      - key: API_URL
+        sync: false  # Set in Dashboard: https://pdf-generator-api.onrender.com/api
+      - key: TELEGRAM_SERVER_URL
+        sync: false  # Same as API_URL (backend serves /api/telegram)
+      - key: FRONTEND_URL
+        sync: false  # Set in Dashboard: https://your-app.vercel.app

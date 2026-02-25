@@ -1,0 +1,513 @@
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib'
+import fs from 'fs/promises'
+import path from 'path'
+import { TemplateData } from '../types.js'
+import { AppError, ErrorCodes } from '../lib/errors.js'
+
+// Helper function to format dates
+function formatDate(dateStr: string | undefined, format: 'MM/DD/YYYY' | 'MMM DD, YYYY' = 'MM/DD/YYYY', prefix?: string): string {
+  if (!dateStr) return ''
+  
+  try {
+    // Handle different date formats
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) {
+      // Try parsing MM/DD/YYYY format
+      const [month, day, year] = dateStr.split('/')
+      if (month && day && year) {
+        const parsedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
+        if (format === 'MMM DD, YYYY') {
+          const formattedDate = parsedDate.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }).toUpperCase()
+          return prefix ? `${prefix} ${formattedDate}` : formattedDate
+        }
+        return `${month.padStart(2, '0')}/${day.padStart(2, '0')}/${year}`
+      }
+      return dateStr
+    }
+    
+    if (format === 'MMM DD, YYYY') {
+      const formattedDate = date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }).toUpperCase()
+      return prefix ? `${prefix} ${formattedDate}` : formattedDate
+    }
+    
+    // Format as MM/DD/YYYY
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    return `${month}/${day}/${year}`
+  } catch (error) {
+    console.warn('Date formatting error:', error)
+    return dateStr
+  }
+}
+
+// Define metadata fields that shouldn't be filled in the PDF
+const METADATA_FIELDS = ['documentName', 'templateId', 'templatePath', 'timestamp']
+
+// Define date fields that need formatting
+const DATE_FIELDS = ['date1', 'date2', 'exp1', 'exp2']
+const SPECIAL_DATE_FIELDS = ['exp3'] // Fields that need special date formatting
+
+export class PDFService {
+  private static async loadTemplate(templatePath: string): Promise<PDFDocument> {
+    try {
+      const templateBytes = await fs.readFile(templatePath)
+      const pdfDoc = await PDFDocument.load(templateBytes)
+      return pdfDoc
+    } catch (error: unknown) {
+      console.error('Failed to load template:', error)
+      
+      // Type guard for Error objects
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      throw new AppError(
+        'Failed to load template',
+        ErrorCodes.PDF_GENERATION_ERROR,
+        500,
+        { originalError: errorMessage }
+      )
+    }
+  }
+
+  private static async loadFonts(pdfDoc: PDFDocument) {
+    return {
+      arialMT: await pdfDoc.embedFont(StandardFonts.Helvetica),
+      arialBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+    }
+  }
+
+  private static async generateTemplateBasedPDF(
+    formattedData: any,
+    templatePath: string
+  ): Promise<PDFDocument> {
+    const pdfDoc = await this.loadTemplate(templatePath)
+    const fonts = await this.loadFonts(pdfDoc)
+    const form = pdfDoc.getForm()
+    const page = pdfDoc.getPages()[0]
+    const { height: pageHeight } = page.getSize()
+
+    // Define geometry for special fields
+    const plateArea = {
+      left: 35.90,
+      top: 104.16,
+      width: 712.98,
+      height: 378.00
+    }
+
+    const expArea = {
+      left: 12.10,
+      top: plateArea.top + 193.6,
+      width: 712.98,
+      height: 60
+    }
+
+    const carArea = {
+      left: 37.10,
+      top: plateArea.top + 257.67, // Position below exp3
+      width: 712.98,
+      height: 40
+    }
+
+    // Filter out metadata fields and fill form fields
+    const templateData = Object.fromEntries(
+      Object.entries(formattedData).filter(([key]) => !METADATA_FIELDS.includes(key))
+    )
+
+    // Fill all non-special fields first
+    Object.entries(templateData).forEach(([key, value]) => {
+      try {
+        if (value && key !== 'plate1' && key !== 'exp3' && key !== 'car') {
+          const field = form.getTextField(key)
+          if (field) {
+            field.setText(value.toString())
+            // Set font size 12 for first and last name fields
+            if (key === 'first' || key === 'last') {
+              field.setFontSize(12)
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fill field ${key}:`, error)
+      }
+    })
+
+    // Flatten form fields
+    form.flatten()
+
+    // Handle plate1 with exact geometry
+    if (formattedData.plate1) {
+      const text = formattedData.plate1.toString()
+      const fontSize = 180
+      
+      // Calculate text dimensions
+      const textWidth = fonts.arialBold.widthOfTextAtSize(text, fontSize)
+      const textHeight = fonts.arialBold.heightAtSize(fontSize)
+
+      // Center text in the specified area
+      const centerX = plateArea.left + (plateArea.width - textWidth) / 2
+      const centerY = pageHeight - plateArea.top - plateArea.height / 2 + textHeight / 3
+
+      // Draw the bold text centered in the exact position
+      page.drawText(text, {
+        x: centerX,
+        y: centerY,
+        size: fontSize,
+        font: fonts.arialBold,
+        color: rgb(0, 0, 0)
+      })
+    }
+
+    // Handle exp3 field with bold text
+    if (formattedData.exp3) {
+      const text = formattedData.exp3.toString()
+      const fontSize = 60
+      
+      // Calculate text dimensions
+      const textWidth = fonts.arialBold.widthOfTextAtSize(text, fontSize)
+      const textHeight = fonts.arialBold.heightAtSize(fontSize)
+
+      // Center text in the specified area
+      const centerX = expArea.left + (expArea.width - textWidth) / 2
+      const centerY = pageHeight - expArea.top - expArea.height / 2 + textHeight / 3
+
+      // Draw the bold text centered
+      page.drawText(text, {
+        x: centerX,
+        y: centerY,
+        size: fontSize,
+        font: fonts.arialBold,
+        color: rgb(0, 0, 0)
+      })
+    }
+
+    // Handle car field with bold text
+    if (formattedData.car) {
+      const text = formattedData.car.toString()
+      const fontSize = 20 // Slightly smaller than exp3
+      
+      // Calculate text dimensions
+      const textWidth = fonts.arialBold.widthOfTextAtSize(text, fontSize)
+      const textHeight = fonts.arialBold.heightAtSize(fontSize)
+
+      // Center text in the specified area
+      const centerX = carArea.left + (carArea.width - textWidth) / 2
+      const centerY = pageHeight - carArea.top - carArea.height / 2 + textHeight / 3
+
+      // Draw the bold text centered
+      page.drawText(text, {
+        x: centerX,
+        y: centerY,
+        size: fontSize,
+        font: fonts.arialBold,
+        color: rgb(0, 0, 0)
+      })
+    }
+
+    return pdfDoc
+  }
+
+  private static async generateBlankPDF(
+    formattedData: any
+  ): Promise<PDFDocument> {
+    const pdfDoc = await PDFDocument.create()
+    const fonts = await this.loadFonts(pdfDoc)
+    const page = pdfDoc.addPage([612, 792]) // US Letter size
+    const { width, height } = page.getSize()
+
+    // Helper function to draw text
+    const drawText = (text: string | undefined, x: number, y: number, label: string, isPlate: boolean = false) => {
+      if (!text) return y
+      try {
+        page.drawText(`${label}: ${text}`, {
+          x,
+          y,
+          size: isPlate ? 180 : 11, // Change plate size to 180
+          font: isPlate ? fonts.arialBold : fonts.arialMT,
+          color: rgb(0, 0, 0),
+        })
+        return y - (isPlate ? 180 : 20) // Adjust spacing for larger text
+      } catch (error) {
+        console.warn(`Failed to draw text for ${label}:`, error)
+        return y
+      }
+    }
+
+    // Draw sections
+    let yPosition = height - 50
+
+    // Vehicle Information
+    page.drawText('Vehicle Information', {
+      x: 50,
+      y: yPosition,
+      size: 14,
+      font: fonts.arialMT,
+      color: rgb(0, 0, 0),
+    })
+    yPosition -= 30
+
+    yPosition = drawText(formattedData.vehiclename, 50, yPosition, 'Vehicle Name')
+    yPosition = drawText(formattedData.plate1, 50, yPosition, 'License Plate', true) // Make plate number bigger and bolder
+    yPosition = drawText(formattedData.vin1, 50, yPosition, 'VIN')
+    yPosition = drawText(formattedData.make1, 50, yPosition, 'Make')
+    yPosition = drawText(formattedData.model1, 50, yPosition, 'Model')
+    yPosition = drawText(formattedData.year, 50, yPosition, 'Year')
+    yPosition = drawText(formattedData.color, 50, yPosition, 'Color')
+
+    // Owner Information
+    yPosition -= 20
+    page.drawText('Owner Information', {
+      x: 50,
+      y: yPosition,
+      size: 14,
+      font: fonts.arialMT,
+      color: rgb(0, 0, 0),
+    })
+    yPosition -= 30
+
+    const fullName = [formattedData.first, formattedData.last].filter(Boolean).join(' ')
+    yPosition = drawText(fullName, 50, yPosition, 'Name')
+    yPosition = drawText(formattedData.address, 50, yPosition, 'Address')
+    const cityStateZip = [formattedData.city, formattedData.state, formattedData.zip].filter(Boolean).join(', ')
+    yPosition = drawText(cityStateZip, 50, yPosition, 'City, State ZIP')
+
+    // Insurance Information
+    yPosition -= 20
+    page.drawText('Insurance Information', {
+      x: 50,
+      y: yPosition,
+      size: 14,
+      font: fonts.arialMT,
+      color: rgb(0, 0, 0),
+    })
+    yPosition -= 30
+
+    yPosition = drawText(formattedData.ins, 50, yPosition, 'Insurance Company')
+    yPosition = drawText(formattedData.policy, 50, yPosition, 'Policy Number')
+
+    return pdfDoc
+  }
+
+  static async generatePDF(data: TemplateData, templatePath?: string): Promise<Uint8Array> {
+    try {
+      // Format dates in the data
+      const formattedData = {
+        ...data,
+        ...Object.fromEntries(
+          DATE_FIELDS.map(field => [field, formatDate(data[field as keyof TemplateData], 'MM/DD/YYYY')])
+        ),
+        ...Object.fromEntries(
+          SPECIAL_DATE_FIELDS.map(field => [field, formatDate(data[field as keyof TemplateData], 'MMM DD, YYYY', 'EXP')])
+        )
+      }
+
+      // Generate PDF based on whether we have a template
+      const pdfDoc = templatePath
+        ? await this.generateTemplateBasedPDF(formattedData, templatePath)
+        : await this.generateBlankPDF(formattedData)
+
+      // Add metadata
+      pdfDoc.setTitle(formattedData.documentName || 'Vehicle Transfer Document')
+      pdfDoc.setAuthor('PDF Generator')
+      pdfDoc.setCreator('Vehicle Transfer System')
+      pdfDoc.setModificationDate(new Date())
+
+      return await pdfDoc.save()
+    } catch (error: unknown) {
+      console.error('PDF generation error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      throw new AppError(
+        'Failed to generate PDF',
+        ErrorCodes.PDF_GENERATION_ERROR,
+        500,
+        { originalError: errorMessage }
+      )
+    }
+  }
+
+  static async validateTemplate(templatePath: string): Promise<{
+    isValid: boolean;
+    availableFields: string[];
+    missingFields: string[];
+  }> {
+    try {
+      const pdfDoc = await this.loadTemplate(templatePath)
+      const form = pdfDoc.getForm()
+      const fields = form.getFields()
+      const availableFields = fields.map(field => field.getName())
+
+      // Consider template valid if it's a readable PDF
+      return {
+        isValid: true,
+        availableFields,
+        missingFields: []
+      }
+    } catch (error: unknown) {
+      console.error('Template validation error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      throw new AppError(
+        'Failed to validate template',
+        ErrorCodes.VALIDATION_ERROR,
+        400,
+        { originalError: errorMessage }
+      )
+    }
+  }
+
+  static async generatePreview(data: TemplateData): Promise<Uint8Array> {
+    try {
+      // Format dates in the data
+      const formattedData = {
+        ...data,
+        ...Object.fromEntries(
+          DATE_FIELDS.map(field => [field, formatDate(data[field as keyof TemplateData], 'MM/DD/YYYY')])
+        ),
+        ...Object.fromEntries(
+          SPECIAL_DATE_FIELDS.map(field => [field, formatDate(data[field as keyof TemplateData], 'MMM DD, YYYY', 'EXP')])
+        )
+      }
+
+      // Initialize PDF document
+      let pdfDoc = await PDFDocument.create()
+      const fonts = await this.loadFonts(pdfDoc)
+
+      if (data.templatePath) {
+        // Load template
+        pdfDoc = await this.loadTemplate(data.templatePath)
+        const form = pdfDoc.getForm()
+
+        // Try to fill form fields first
+        Object.entries(formattedData).forEach(([key, value]) => {
+          try {
+            if (value) {
+              const field = form.getTextField(key)
+              if (field) {
+                field.setText(value.toString())
+                // Set font size 12 for first and last name fields
+                if (key === 'first' || key === 'last') {
+                  field.setFontSize(12)
+                }
+              }
+            }
+          } catch (error) {
+            console.debug(`Field ${key} not found in template, using fallback`)
+          }
+        })
+
+        // Add fallback text for missing fields
+        const page = pdfDoc.getPages()[0]
+        const { width, height } = page.getSize()
+        let yPosition = height - 50
+
+        // Draw watermark
+        page.drawText('PREVIEWS', {
+          x: width / 2 - 100,
+          y: height / 2,
+          size: 80,
+          font: fonts.arialBold,
+          color: rgb(0.8, 0.8, 0.8),
+          opacity: 0.3,
+          rotate: degrees(45),
+        })
+
+        // Draw missing fields at the bottom
+        yPosition = height - 700 // Start from bottom of page
+        page.drawText('Additional Information:', {
+          x: 50,
+          y: yPosition,
+          size: 14,
+          font: fonts.arialMT,
+          color: rgb(0, 0, 0),
+        })
+        yPosition -= 30
+
+        Object.entries(formattedData).forEach(([key, value]) => {
+          if (value) {
+            try {
+              const field = form.getTextField(key)
+              // If field doesn't exist in template, add it to the bottom
+              if (!field) {
+                page.drawText(`${key}: ${value}`, {
+                  x: 50,
+                  y: yPosition,
+                  size: 11,
+                  font: key === 'plate1' ? fonts.arialBold : fonts.arialMT,
+                  color: rgb(0, 0, 0),
+                })
+                yPosition -= 20
+              }
+            } catch {
+              // Field doesn't exist, add it to the bottom
+              page.drawText(`${key}: ${value}`, {
+                x: 50,
+                y: yPosition,
+                size: 11,
+                font: key === 'plate1' ? fonts.arialBold : fonts.arialMT,
+                color: rgb(0, 0, 0),
+              })
+              yPosition -= 20
+            }
+          }
+        })
+
+        // Flatten form to prevent editing
+        form.flatten()
+      } else {
+        // Generate preview from scratch
+        const page = pdfDoc.addPage([612, 792])
+        const { width, height } = page.getSize()
+        let yPosition = height - 50
+
+        // Draw watermark
+        page.drawText('PREVIEW', {
+          x: width / 2 - 100,
+          y: height / 2,
+          size: 100,
+          font: fonts.arialBold,
+          color: rgb(0.8, 0.8, 0.8),
+          opacity: 0.3,
+          rotate: degrees(45),
+        })
+
+        // Draw all fields with formatted dates
+        Object.entries(formattedData).forEach(([key, value]) => {
+          if (value && !METADATA_FIELDS.includes(key)) {
+            page.drawText(`${key}: ${value}`, {
+              x: 50,
+              y: yPosition,
+              size: 11,
+              font: fonts.arialMT,
+              color: rgb(0, 0, 0),
+            })
+            yPosition -= 20
+          }
+        })
+      }
+
+      return await pdfDoc.save({
+        useObjectStreams: false,
+        addDefaultPage: false,
+        objectsPerTick: 10,
+      })
+    } catch (error: unknown) {
+      console.error('Preview generation error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      throw new AppError(
+        'Failed to generate preview',
+        ErrorCodes.PDF_GENERATION_ERROR,
+        500,
+        { originalError: errorMessage }
+      )
+    }
+  }
+} 
