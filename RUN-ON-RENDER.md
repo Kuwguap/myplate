@@ -41,7 +41,7 @@ After the first deploy (or from each service’s **Environment** tab), set these
 | `TELEGRAM_SERVER_URL`| Same as `API_URL` |
 | `FRONTEND_URL`       | Same as the frontend URL you set on the API |
 
-Get the API URL from the Render dashboard: open **pdf-generator-api** → the URL is shown at the top (e.g. `https://pdf-generator-api.onrender.com`). Use that + `/api` for `API_URL` and `TELEGRAM_SERVER_URL`.
+Get the API URL from the Render dashboard: open **pdf-generator-api** → the URL is shown at the top (e.g. `https://pdf-generator-api.onrender.com`). Use that + `/api` for both `API_URL` and `TELEGRAM_SERVER_URL`. There is no separate "Telegram Server" on Render; the API service serves `/api/telegram` (webhook + form-data). See [TELEGRAM-SETUP.md](./TELEGRAM-SETUP.md) if the bot doesn’t work.
 
 ## 4. Redeploy after setting env vars
 

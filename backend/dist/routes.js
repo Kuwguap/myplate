@@ -6,7 +6,7 @@ import { TemplateController } from './controllers/template-controller.js';
 import { DocumentController } from './controllers/document-controller.js';
 import { PDFService } from './services/pdf-service.js';
 import { AppError, ErrorCodes } from './lib/errors.js';
-import { validateTemplateData } from './lib/validation.js';
+import { validatePreviewData } from './lib/validation.js';
 import { getDb } from './database.js';
 import fs from 'fs/promises';
 import { handleWebhook, getFormData } from './controllers/telegram.controller.js';
@@ -118,27 +118,36 @@ router.post('/generate-pdf', async (req, res, next) => {
         next(error);
     }
 });
-// Preview route
+// Preview route (lenient validation so partial form data works; fallback to blank if template file missing)
 router.post('/preview-pdf', async (req, res, next) => {
     try {
-        const { data, templateId, templatePath } = req.body;
+        const body = req.body || {};
+        // Frontend may send { data, templateId, templatePath } or a flat form object
+        const data = body.data ?? body;
+        const templateId = body.templateId ?? data?.templateId;
         const db = await getDb();
-        // Validate the incoming data
-        const validatedData = validateTemplateData(data);
+        const validatedData = validatePreviewData(data);
         let pdfBytes;
         if (templateId) {
-            // Get template and generate preview with template
             const template = await db.get('SELECT * FROM templates WHERE id = ?', templateId);
-            if (!template) {
-                throw new AppError('Template not found', ErrorCodes.TEMPLATE_NOT_FOUND, 404);
+            if (template) {
+                const templatePath = resolveTemplatePath(template.file_path);
+                try {
+                    pdfBytes = await PDFService.generatePDF(validatedData, templatePath);
+                }
+                catch (err) {
+                    // Template file missing (e.g. ephemeral disk on Render) — fallback to blank preview
+                    console.warn('Preview: template file missing or unreadable, using blank preview:', (err instanceof Error ? err.message : err));
+                    pdfBytes = await PDFService.generatePreview(validatedData);
+                }
             }
-            pdfBytes = await PDFService.generatePDF(validatedData, resolveTemplatePath(template.file_path));
+            else {
+                pdfBytes = await PDFService.generatePreview(validatedData);
+            }
         }
         else {
-            // Generate preview from scratch
             pdfBytes = await PDFService.generatePreview(validatedData);
         }
-        // Send PDF with proper headers
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline');
         res.setHeader('Content-Length', pdfBytes.length);
@@ -191,7 +200,13 @@ router.get('/documents/:id/preview', async (req, res, next) => {
         if (document.template_id) {
             const template = await db.get('SELECT * FROM templates WHERE id = ?', document.template_id);
             if (template) {
-                pdfBytes = await PDFService.generatePDF(documentData, resolveTemplatePath(template.file_path));
+                try {
+                    pdfBytes = await PDFService.generatePDF(documentData, resolveTemplatePath(template.file_path));
+                }
+                catch (err) {
+                    console.warn('Document preview: template file missing, using blank:', (err instanceof Error ? err.message : err));
+                    pdfBytes = await PDFService.generatePreview(documentData);
+                }
             }
             else {
                 pdfBytes = await PDFService.generatePreview(documentData);

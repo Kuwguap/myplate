@@ -55,4 +55,18 @@ export function validateTemplateData(data: unknown) {
     }
     throw error
   }
+}
+
+/** Lenient schema for preview: all fields optional so partial form data still works. */
+const previewDataSchema = templateDataSchema.partial()
+
+export function validatePreviewData(data: unknown): Record<string, unknown> {
+  if (data === null || typeof data !== 'object') {
+    return {}
+  }
+  try {
+    return previewDataSchema.parse(data) as Record<string, unknown>
+  } catch {
+    return (data as Record<string, unknown>) || {}
+  }
 } 

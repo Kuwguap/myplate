@@ -118,38 +118,30 @@ Write-Host ""
 Write-Host "Starting Backend Server (Port 3002)..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendDir'; Write-Host 'Backend Server - Port 3002' -ForegroundColor Green; Write-Host ''; npm run dev"
 
-# Wait a bit for backend to initialize
+# Wait a bit for backend to initialize (backend also serves /api/telegram - no separate Telegram Server)
 Start-Sleep -Seconds 3
 
-# Start Telegram Server (Terminal 2)
-Write-Host "Starting Telegram Server (Port 3003)..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendDir'; Write-Host 'Telegram Server - Port 3003' -ForegroundColor Green; Write-Host ''; node telegram-server.js"
-
-# Wait a bit
-Start-Sleep -Seconds 2
-
-# Start Telegram Bot (Terminal 3)
+# Start Telegram Bot (Terminal 2) - uses main backend at 3002 for webhook + API
 Write-Host "Starting Telegram Bot..." -ForegroundColor Cyan
 if (-not $pythonCommand) { $pythonCommand = "python" }
-# Embed the Python command directly in the string
-$telegramBotCommand = "cd '$backendDir'; Write-Host 'Telegram Bot' -ForegroundColor Green; Write-Host ''; $pythonCommand telegram_bot.py"
+$apiUrl = "http://localhost:3002/api"
+$telegramBotCommand = "cd '$backendDir'; `$env:API_URL='$apiUrl'; `$env:TELEGRAM_SERVER_URL='$apiUrl'; Write-Host 'Telegram Bot (backend at $apiUrl)' -ForegroundColor Green; Write-Host ''; $pythonCommand telegram_bot.py"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $telegramBotCommand
 
 # Wait a bit
 Start-Sleep -Seconds 2
 
-# Start Frontend (Terminal 4)
+# Start Frontend (Terminal 3)
 Write-Host "Starting Frontend (Port 3000)..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$scriptDir'; Write-Host 'Frontend - Port 3000' -ForegroundColor Green; Write-Host ''; npm run dev"
 
 Write-Host ""
-Write-Host "[SUCCESS] All services are starting in separate windows!" -ForegroundColor Green
+Write-Host "[SUCCESS] All 3 services are starting in separate windows!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Services:" -ForegroundColor Yellow
-Write-Host "  - Backend API:    http://localhost:3002" -ForegroundColor White
-Write-Host "  - Telegram Server: http://localhost:3003" -ForegroundColor White
+Write-Host "  - Backend API:    http://localhost:3002 (includes /api/telegram)" -ForegroundColor White
+Write-Host "  - Telegram Bot:   Running (polling, uses backend 3002)" -ForegroundColor White
 Write-Host "  - Frontend:       http://localhost:3000" -ForegroundColor White
-Write-Host "  - Telegram Bot:   Running (polling)" -ForegroundColor White
 Write-Host ""
 Write-Host "Note: Wait a few seconds for all services to initialize." -ForegroundColor Gray
 Write-Host "Then open http://localhost:3000 in your browser." -ForegroundColor Gray

@@ -150,6 +150,8 @@ For local development, keep using `NEXT_PUBLIC_API_URL=http://localhost:3002/api
 
 **To persist data:** In Render Dashboard → **pdf-generator-api** → **Disks** → add a disk (e.g. mount path `/data`, 1 GB). In the same service → **Environment** → add `DATA_PATH=/data`. Redeploy. The backend will store `data.db` and uploads under `/data` so they survive restarts and redeploys.
 
+**Backup and restore:** For a single database and one place for all stored files (so you can keep consistency from where you left off offline/online), see **[DATA-BACKUP-RESTORE.md](./DATA-BACKUP-RESTORE.md)**. It explains where data lives, how to backup `data.db` and `uploads/`, and how to restore or move that data.
+
 **Checklist when everything is online:**
 
 1. **Vercel** – `NEXT_PUBLIC_API_URL` = your Render API URL (e.g. `https://pdf-generator-api-a0m8.onrender.com`).

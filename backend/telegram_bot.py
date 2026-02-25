@@ -9,11 +9,14 @@ from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 
 # Configuration (use environment variables in production, e.g. on Render)
+# The main backend (Node API) serves /api/telegram (webhook + form-data). There is no separate "Telegram Server".
+# Locally: backend runs on 3002. On Render: one API service; bot must set API_URL and TELEGRAM_SERVER_URL to that API.
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 API_URL = (os.environ.get('API_URL') or 'http://localhost:3002/api').rstrip('/')
 if not API_URL.endswith('/api'):
     API_URL = API_URL + '/api'
-TELEGRAM_SERVER_URL = (os.environ.get('TELEGRAM_SERVER_URL') or os.environ.get('API_URL') or 'http://localhost:3003').rstrip('/')
+# Bot posts webhook to the same backend that serves /api/telegram (no separate port 3003)
+TELEGRAM_SERVER_URL = (os.environ.get('TELEGRAM_SERVER_URL') or os.environ.get('API_URL') or 'http://localhost:3002/api').rstrip('/')
 if not TELEGRAM_SERVER_URL.endswith('/api'):
     TELEGRAM_SERVER_URL = TELEGRAM_SERVER_URL + '/api'
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')

@@ -44,6 +44,8 @@ async function initializeServer() {
             res.setHeader('X-Content-Type-Options', 'nosniff');
             next();
         }, express.static(path.join(getDataRoot(), 'uploads')));
+        // Root health for Render and for frontend when API_URL is base URL without /api
+        app.get('/health', (_req, res) => { res.json({ status: 'ok' }); });
         // Routes with proper error handling
         app.use('/api/telegram', (req, res, next) => {
             console.log(`Telegram API: ${req.method} ${req.path}`);
