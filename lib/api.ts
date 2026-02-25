@@ -1,4 +1,6 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002/api'
+// Normalize so base always ends with /api (backend mounts routes at /api)
+const raw = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002/api'
+export const API_URL = raw.replace(/\/api\/?$/, '') + '/api'
 
 const checkServerConnection = async () => {
   try {

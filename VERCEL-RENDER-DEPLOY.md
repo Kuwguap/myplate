@@ -104,19 +104,19 @@ If you do **not** add a disk, the app still runs, but all documents and template
 
    | Name                      | Value                                           |
    |---------------------------|--------------------------------------------------|
-   | `NEXT_PUBLIC_API_URL`     | `https://pdf-generator-api.onrender.com/api`    |
+   | `NEXT_PUBLIC_API_URL`     | Your Render API URL, e.g. `https://pdf-generator-api-a0m8.onrender.com` or `.../api` (both work) |
    | `NEXT_PUBLIC_TELEGRAM_BOT_TOKEN` | Your Telegram bot token (optional; for “Send to Telegram” from UI) |
 
-5. Deploy. Note the frontend URL, e.g. `https://your-app.vercel.app`.
+5. Deploy. Note the frontend URL, e.g. `https://myplate.vercel.app`.
 
 ---
 
 ## 3. Point everything to the live URLs
 
-1. **Render – API service:** set `FRONTEND_URL` to your Vercel URL (e.g. `https://your-app.vercel.app`).
-2. **Render – Bot worker:** set `FRONTEND_URL` to the same; ensure `API_URL` and `TELEGRAM_SERVER_URL` are `https://pdf-generator-api.onrender.com/api`.
-3. **Vercel:** ensure `NEXT_PUBLIC_API_URL` is `https://pdf-generator-api.onrender.com/api`.
-4. Redeploy the Render services if you changed env vars so they pick up the new values.
+1. **Render – API service:** set `FRONTEND_URL` to your Vercel URL (e.g. `https://myplate.vercel.app`).
+2. **Render – Bot worker:** set `FRONTEND_URL` to the same; set `API_URL` and `TELEGRAM_SERVER_URL` to your API base + `/api` (e.g. `https://pdf-generator-api-a0m8.onrender.com/api`).
+3. **Vercel:** set `NEXT_PUBLIC_API_URL` to your Render API URL. You can use either the base URL (e.g. `https://pdf-generator-api-a0m8.onrender.com`) or with `/api`; the frontend normalizes to `/api` for all requests.
+4. Redeploy the Render services if you changed env vars so they pick up the new values. Redeploy Vercel if you changed `NEXT_PUBLIC_API_URL`.
 
 ---
 
@@ -135,3 +135,25 @@ Because this value is exposed in the client, prefer a bot used only for this app
 - The old standalone “telegram server” (port 3003) is not needed in this setup; the main backend serves `/api/telegram` (webhook + form-data).
 
 For local development, keep using `NEXT_PUBLIC_API_URL=http://localhost:3002/api` and run the backend and bot as before (e.g. from `backend/` with `npm run dev` and `python telegram_bot.py`).
+
+---
+
+## Data management when everything is online
+
+| Where | What runs | Where data lives |
+|-------|-----------|------------------|
+| **Vercel** | Next.js frontend only | **No data.** The site only calls the Render API. No database, no file storage. |
+| **Render – pdf-generator-api** | Node backend (templates, documents, PDFs, `/api/health`, `/api/telegram`) | **SQLite** `data.db` and uploaded files in the service filesystem. |
+| **Render – pdf-generator-telegram-bot** | Python Telegram bot | No persistent data; it calls the API and Telegram. |
+
+**Without a persistent disk (default):** Render’s filesystem is ephemeral. On each **restart or redeploy** of the API service, `data.db` and uploads are lost. The app works; documents and templates just don’t persist.
+
+**To persist data:** In Render Dashboard → **pdf-generator-api** → **Disks** → add a disk (e.g. mount path `/data`, 1 GB). In the same service → **Environment** → add `DATA_PATH=/data`. Redeploy. The backend will store `data.db` and uploads under `/data` so they survive restarts and redeploys.
+
+**Checklist when everything is online:**
+
+1. **Vercel** – `NEXT_PUBLIC_API_URL` = your Render API URL (e.g. `https://pdf-generator-api-a0m8.onrender.com`).
+2. **Render API** – `FRONTEND_URL` = your Vercel URL (e.g. `https://myplate.vercel.app`).
+3. **Render Bot** – `API_URL` and `TELEGRAM_SERVER_URL` = API URL + `/api`; `FRONTEND_URL` = same as above; `TELEGRAM_BOT_TOKEN` = from BotFather.
+4. Backend exposes **`/health`** and **`/api/health`**; the frontend calls `API_URL` (normalized to `/api`) + `/health` → `.../api/health`. If the page shows “Unable to connect”, confirm the Render API service is running and the URL in Vercel env is correct.
+5. Optional: add a **Persistent Disk** to the API service and set `DATA_PATH` to keep data across deploys.

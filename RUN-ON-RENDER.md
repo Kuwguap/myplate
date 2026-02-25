@@ -51,8 +51,7 @@ Get the API URL from the Render dashboard: open **pdf-generator-api** → the UR
 
 In **Vercel** (or wherever the frontend is hosted), set:
 
-- **`NEXT_PUBLIC_API_URL`** = `https://pdf-generator-api.onrender.com/api`  
-  (replace with your real Render API URL if different.)
+- **`NEXT_PUBLIC_API_URL`** = your Render API URL, e.g. `https://pdf-generator-api-a0m8.onrender.com` or `https://pdf-generator-api-a0m8.onrender.com/api` (either works; the app normalizes to `/api` for health and other calls).
 
 Redeploy the frontend so it uses this URL.
 

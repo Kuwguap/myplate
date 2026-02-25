@@ -2,11 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Arial MT Font Declarations */
+/* Arial MT Font Declarations – use system Arial to avoid 404s when font files are not in public/fonts */
 @font-face {
   font-family: 'Arial MT';
-  src: url('/fonts/ArialMT.woff2') format('woff2'),
-       url('/fonts/ArialMT.woff') format('woff');
+  src: local('Arial');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
@@ -14,8 +13,7 @@
 
 @font-face {
   font-family: 'Arial MT';
-  src: url('/fonts/ArialMT-Bold.woff2') format('woff2'),
-       url('/fonts/ArialMT-Bold.woff') format('woff');
+  src: local('Arial Bold'), local('Arial');
   font-weight: bold;
   font-style: normal;
   font-display: swap;
@@ -23,8 +21,7 @@
 
 @font-face {
   font-family: 'Arial Bold';
-  src: url('/fonts/Arial-BoldMT.woff2') format('woff2'),
-       url('/fonts/Arial-BoldMT.woff') format('woff');
+  src: local('Arial Bold'), local('Arial');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
