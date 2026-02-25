@@ -10,12 +10,12 @@ import { validateTemplateData } from './lib/validation.js';
 import { getDb } from './database.js';
 import fs from 'fs/promises';
 import { handleWebhook, getFormData } from './controllers/telegram.controller.js';
+import { getUploadsPath, resolveTemplatePath } from './utils/file-system.js';
 const router = Router();
 // Configure multer for PDF uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        // Use absolute path for uploads directory
-        const uploadPath = path.join(process.cwd(), 'uploads', 'templates');
+        const uploadPath = getUploadsPath();
         cb(null, uploadPath);
     },
     filename: (req, file, cb) => {
@@ -99,11 +99,11 @@ router.post('/generate-pdf', async (req, res, next) => {
             if (!template) {
                 throw new AppError('Template not found', ErrorCodes.TEMPLATE_NOT_FOUND, 404);
             }
-            pdfBytes = await PDFService.generatePDF(formData, template.file_path);
+            pdfBytes = await PDFService.generatePDF(formData, resolveTemplatePath(template.file_path));
         }
         else {
             // Generate PDF from scratch
-            pdfBytes = await PDFService.createTemplate(formData);
+            pdfBytes = await PDFService.generatePDF(formData);
         }
         // Send to Telegram automatically
         const fileName = `${formData.documentName || 'document'}.pdf`;
@@ -132,7 +132,7 @@ router.post('/preview-pdf', async (req, res, next) => {
             if (!template) {
                 throw new AppError('Template not found', ErrorCodes.TEMPLATE_NOT_FOUND, 404);
             }
-            pdfBytes = await PDFService.generatePDF(validatedData, template.file_path);
+            pdfBytes = await PDFService.generatePDF(validatedData, resolveTemplatePath(template.file_path));
         }
         else {
             // Generate preview from scratch
@@ -191,7 +191,7 @@ router.get('/documents/:id/preview', async (req, res, next) => {
         if (document.template_id) {
             const template = await db.get('SELECT * FROM templates WHERE id = ?', document.template_id);
             if (template) {
-                pdfBytes = await PDFService.generatePDF(documentData, template.file_path);
+                pdfBytes = await PDFService.generatePDF(documentData, resolveTemplatePath(template.file_path));
             }
             else {
                 pdfBytes = await PDFService.generatePreview(documentData);
@@ -240,7 +240,7 @@ router.delete('/templates/:id', async (req, res, next) => {
         }
         // Delete template file
         try {
-            await fs.unlink(template.file_path);
+            await fs.unlink(resolveTemplatePath(template.file_path));
         }
         catch (error) {
             console.warn('Failed to delete template file:', error);

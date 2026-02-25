@@ -1,8 +1,8 @@
-import { PDFService } from '../services/pdf-service';
-import { AppError, ErrorCodes } from '../lib/errors';
+import { PDFService } from '../services/pdf-service.js';
+import { AppError, ErrorCodes } from '../lib/errors.js';
 import path from 'path';
 import fs from 'fs/promises';
-import { ensureDirectoryExists, getUploadsPath } from '../utils/file-system';
+import { ensureDirectoryExists, getUploadsPath, getDataRoot, resolveTemplatePath } from '../utils/file-system.js';
 export class TemplateController {
     static async upload(req, res, next) {
         let tempFilePath = null;
@@ -34,8 +34,8 @@ export class TemplateController {
             // Move file to final destination
             await fs.rename(tempFilePath, finalPath);
             tempFilePath = null; // Clear temp path since file was moved successfully
-            // Store relative path in database
-            const relativePath = path.relative(process.cwd(), finalPath);
+            // Store path relative to data root (so it works with DATA_PATH on Render)
+            const relativePath = path.relative(getDataRoot(), finalPath);
             const db = req.app.locals.db;
             // Save template to database
             const result = await db.run('INSERT INTO templates (name, description, file_path) VALUES (?, ?, ?)', [name, description, relativePath]);
@@ -75,7 +75,7 @@ export class TemplateController {
                 throw new AppError('Template not found', ErrorCodes.TEMPLATE_NOT_FOUND, 404);
             }
             // Get template fields
-            const validation = await PDFService.validateTemplate(template.file_path);
+            const validation = await PDFService.validateTemplate(resolveTemplatePath(template.file_path));
             res.json({
                 ...template,
                 fields: validation.availableFields
@@ -96,7 +96,7 @@ export class TemplateController {
             }
             // Delete file
             try {
-                await fs.unlink(template.file_path);
+                await fs.unlink(resolveTemplatePath(template.file_path));
             }
             catch (error) {
                 console.warn('Failed to delete template file:', error);

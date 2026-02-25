@@ -119,7 +119,7 @@ router.post('/generate-pdf', async (req, res, next) => {
       pdfBytes = await PDFService.generatePDF(formData, resolveTemplatePath(template.file_path))
     } else {
       // Generate PDF from scratch
-      pdfBytes = await PDFService.createTemplate(formData)
+      pdfBytes = await PDFService.generatePDF(formData)
     }
 
     // Send to Telegram automatically

@@ -5,7 +5,7 @@ import { initializeDatabase } from './database.js';
 import { errorHandler } from './middleware/error-handler.js';
 import dotenv from 'dotenv';
 import path from 'path';
-import { ensureDirectoryExists, getUploadsPath } from './utils/file-system.js';
+import { ensureDirectoryExists, getUploadsPath, getDataRoot } from './utils/file-system.js';
 import { runMigrations } from './lib/run-migrations.js';
 import telegramRoutes from './routes/telegram.routes.js';
 // Load environment variables
@@ -43,7 +43,7 @@ async function initializeServer() {
             res.setHeader('Content-Security-Policy', "default-src 'self'");
             res.setHeader('X-Content-Type-Options', 'nosniff');
             next();
-        }, express.static(path.join(process.cwd(), 'uploads')));
+        }, express.static(path.join(getDataRoot(), 'uploads')));
         // Routes with proper error handling
         app.use('/api/telegram', (req, res, next) => {
             console.log(`Telegram API: ${req.method} ${req.path}`);

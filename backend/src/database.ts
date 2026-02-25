@@ -1,9 +1,11 @@
 import sqlite3 from 'sqlite3'
 import { open } from 'sqlite'
 import path from 'path'
-import { Database } from 'sqlite'
+import type { Database } from 'sqlite'
 
 let _db: Database | null = null
+
+export type { Database }
 
 export async function getDb(): Promise<Database> {
   if (_db) return _db

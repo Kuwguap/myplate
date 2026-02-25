@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import fs from 'fs/promises';
-import { AppError, ErrorCodes } from '../lib/errors';
+import { AppError, ErrorCodes } from '../lib/errors.js';
 // Helper function to format dates
 function formatDate(dateStr, format = 'MM/DD/YYYY', prefix) {
     if (!dateStr)
@@ -69,6 +69,183 @@ export class PDFService {
             arialBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
         };
     }
+    static async generateTemplateBasedPDF(formattedData, templatePath) {
+        const pdfDoc = await this.loadTemplate(templatePath);
+        const fonts = await this.loadFonts(pdfDoc);
+        const form = pdfDoc.getForm();
+        const page = pdfDoc.getPages()[0];
+        const { height: pageHeight } = page.getSize();
+        // Define geometry for special fields
+        const plateArea = {
+            left: 35.90,
+            top: 104.16,
+            width: 712.98,
+            height: 378.00
+        };
+        const expArea = {
+            left: 12.10,
+            top: plateArea.top + 193.6,
+            width: 712.98,
+            height: 60
+        };
+        const carArea = {
+            left: 37.10,
+            top: plateArea.top + 257.67, // Position below exp3
+            width: 712.98,
+            height: 40
+        };
+        // Filter out metadata fields and fill form fields
+        const templateData = Object.fromEntries(Object.entries(formattedData).filter(([key]) => !METADATA_FIELDS.includes(key)));
+        // Fill all non-special fields first
+        Object.entries(templateData).forEach(([key, value]) => {
+            try {
+                if (value && key !== 'plate1' && key !== 'exp3' && key !== 'car') {
+                    const field = form.getTextField(key);
+                    if (field) {
+                        field.setText(value.toString());
+                        // Set font size 12 for first and last name fields
+                        if (key === 'first' || key === 'last') {
+                            field.setFontSize(12);
+                        }
+                    }
+                }
+            }
+            catch (error) {
+                console.warn(`Failed to fill field ${key}:`, error);
+            }
+        });
+        // Flatten form fields
+        form.flatten();
+        // Handle plate1 with exact geometry
+        if (formattedData.plate1) {
+            const text = formattedData.plate1.toString();
+            const fontSize = 180;
+            // Calculate text dimensions
+            const textWidth = fonts.arialBold.widthOfTextAtSize(text, fontSize);
+            const textHeight = fonts.arialBold.heightAtSize(fontSize);
+            // Center text in the specified area
+            const centerX = plateArea.left + (plateArea.width - textWidth) / 2;
+            const centerY = pageHeight - plateArea.top - plateArea.height / 2 + textHeight / 3;
+            // Draw the bold text centered in the exact position
+            page.drawText(text, {
+                x: centerX,
+                y: centerY,
+                size: fontSize,
+                font: fonts.arialBold,
+                color: rgb(0, 0, 0)
+            });
+        }
+        // Handle exp3 field with bold text
+        if (formattedData.exp3) {
+            const text = formattedData.exp3.toString();
+            const fontSize = 60;
+            // Calculate text dimensions
+            const textWidth = fonts.arialBold.widthOfTextAtSize(text, fontSize);
+            const textHeight = fonts.arialBold.heightAtSize(fontSize);
+            // Center text in the specified area
+            const centerX = expArea.left + (expArea.width - textWidth) / 2;
+            const centerY = pageHeight - expArea.top - expArea.height / 2 + textHeight / 3;
+            // Draw the bold text centered
+            page.drawText(text, {
+                x: centerX,
+                y: centerY,
+                size: fontSize,
+                font: fonts.arialBold,
+                color: rgb(0, 0, 0)
+            });
+        }
+        // Handle car field with bold text
+        if (formattedData.car) {
+            const text = formattedData.car.toString();
+            const fontSize = 20; // Slightly smaller than exp3
+            // Calculate text dimensions
+            const textWidth = fonts.arialBold.widthOfTextAtSize(text, fontSize);
+            const textHeight = fonts.arialBold.heightAtSize(fontSize);
+            // Center text in the specified area
+            const centerX = carArea.left + (carArea.width - textWidth) / 2;
+            const centerY = pageHeight - carArea.top - carArea.height / 2 + textHeight / 3;
+            // Draw the bold text centered
+            page.drawText(text, {
+                x: centerX,
+                y: centerY,
+                size: fontSize,
+                font: fonts.arialBold,
+                color: rgb(0, 0, 0)
+            });
+        }
+        return pdfDoc;
+    }
+    static async generateBlankPDF(formattedData) {
+        const pdfDoc = await PDFDocument.create();
+        const fonts = await this.loadFonts(pdfDoc);
+        const page = pdfDoc.addPage([612, 792]); // US Letter size
+        const { width, height } = page.getSize();
+        // Helper function to draw text
+        const drawText = (text, x, y, label, isPlate = false) => {
+            if (!text)
+                return y;
+            try {
+                page.drawText(`${label}: ${text}`, {
+                    x,
+                    y,
+                    size: isPlate ? 180 : 11, // Change plate size to 180
+                    font: isPlate ? fonts.arialBold : fonts.arialMT,
+                    color: rgb(0, 0, 0),
+                });
+                return y - (isPlate ? 180 : 20); // Adjust spacing for larger text
+            }
+            catch (error) {
+                console.warn(`Failed to draw text for ${label}:`, error);
+                return y;
+            }
+        };
+        // Draw sections
+        let yPosition = height - 50;
+        // Vehicle Information
+        page.drawText('Vehicle Information', {
+            x: 50,
+            y: yPosition,
+            size: 14,
+            font: fonts.arialMT,
+            color: rgb(0, 0, 0),
+        });
+        yPosition -= 30;
+        yPosition = drawText(formattedData.vehiclename, 50, yPosition, 'Vehicle Name');
+        yPosition = drawText(formattedData.plate1, 50, yPosition, 'License Plate', true); // Make plate number bigger and bolder
+        yPosition = drawText(formattedData.vin1, 50, yPosition, 'VIN');
+        yPosition = drawText(formattedData.make1, 50, yPosition, 'Make');
+        yPosition = drawText(formattedData.model1, 50, yPosition, 'Model');
+        yPosition = drawText(formattedData.year, 50, yPosition, 'Year');
+        yPosition = drawText(formattedData.color, 50, yPosition, 'Color');
+        // Owner Information
+        yPosition -= 20;
+        page.drawText('Owner Information', {
+            x: 50,
+            y: yPosition,
+            size: 14,
+            font: fonts.arialMT,
+            color: rgb(0, 0, 0),
+        });
+        yPosition -= 30;
+        const fullName = [formattedData.first, formattedData.last].filter(Boolean).join(' ');
+        yPosition = drawText(fullName, 50, yPosition, 'Name');
+        yPosition = drawText(formattedData.address, 50, yPosition, 'Address');
+        const cityStateZip = [formattedData.city, formattedData.state, formattedData.zip].filter(Boolean).join(', ');
+        yPosition = drawText(cityStateZip, 50, yPosition, 'City, State ZIP');
+        // Insurance Information
+        yPosition -= 20;
+        page.drawText('Insurance Information', {
+            x: 50,
+            y: yPosition,
+            size: 14,
+            font: fonts.arialMT,
+            color: rgb(0, 0, 0),
+        });
+        yPosition -= 30;
+        yPosition = drawText(formattedData.ins, 50, yPosition, 'Insurance Company');
+        yPosition = drawText(formattedData.policy, 50, yPosition, 'Policy Number');
+        return pdfDoc;
+    }
     static async generatePDF(data, templatePath) {
         try {
             // Format dates in the data
@@ -77,102 +254,10 @@ export class PDFService {
                 ...Object.fromEntries(DATE_FIELDS.map(field => [field, formatDate(data[field], 'MM/DD/YYYY')])),
                 ...Object.fromEntries(SPECIAL_DATE_FIELDS.map(field => [field, formatDate(data[field], 'MMM DD, YYYY', 'EXP')]))
             };
-            let pdfDoc;
-            if (templatePath) {
-                // Load and fill template
-                pdfDoc = await this.loadTemplate(templatePath);
-                const form = pdfDoc.getForm();
-                // Filter out metadata fields and fill form fields
-                const templateData = Object.fromEntries(Object.entries(formattedData).filter(([key]) => !METADATA_FIELDS.includes(key)));
-                // Fill form fields
-                Object.entries(templateData).forEach(([key, value]) => {
-                    try {
-                        if (value) {
-                            const field = form.getTextField(key);
-                            if (field) {
-                                field.setText(value.toString());
-                            }
-                        }
-                    }
-                    catch (error) {
-                        console.warn(`Failed to fill field ${key}:`, error);
-                    }
-                });
-                // Flatten form fields to prevent editing
-                form.flatten();
-            }
-            else {
-                // Create new PDF from scratch
-                pdfDoc = await PDFDocument.create();
-                const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-                const timesFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-                const page = pdfDoc.addPage([612, 792]); // US Letter size
-                const { width, height } = page.getSize();
-                // Helper function to draw text
-                const drawText = (text, x, y, label) => {
-                    if (!text)
-                        return y;
-                    try {
-                        page.drawText(`${label}: ${text}`, {
-                            x,
-                            y,
-                            size: 11,
-                            font: helveticaFont,
-                            color: rgb(0, 0, 0),
-                        });
-                        return y - 20;
-                    }
-                    catch (error) {
-                        console.warn(`Failed to draw text for ${label}:`, error);
-                        return y;
-                    }
-                };
-                // Draw sections
-                let yPosition = height - 50;
-                // Vehicle Information
-                page.drawText('Vehicle Information', {
-                    x: 50,
-                    y: yPosition,
-                    size: 14,
-                    font: helveticaFont,
-                    color: rgb(0, 0, 0),
-                });
-                yPosition -= 30;
-                yPosition = drawText(formattedData.vehiclename, 50, yPosition, 'Vehicle Name');
-                yPosition = drawText(formattedData.plate1, 50, yPosition, 'License Plate');
-                yPosition = drawText(formattedData.vin1, 50, yPosition, 'VIN');
-                yPosition = drawText(formattedData.make1, 50, yPosition, 'Make');
-                yPosition = drawText(formattedData.model1, 50, yPosition, 'Model');
-                yPosition = drawText(formattedData.year, 50, yPosition, 'Year');
-                yPosition = drawText(formattedData.color, 50, yPosition, 'Color');
-                // Owner Information
-                yPosition -= 20;
-                page.drawText('Owner Information', {
-                    x: 50,
-                    y: yPosition,
-                    size: 14,
-                    font: helveticaFont,
-                    color: rgb(0, 0, 0),
-                });
-                yPosition -= 30;
-                const fullName = [formattedData.first, formattedData.last].filter(Boolean).join(' ');
-                yPosition = drawText(fullName, 50, yPosition, 'Name');
-                yPosition = drawText(formattedData.address, 50, yPosition, 'Address');
-                const cityStateZip = [formattedData.city, formattedData.state, formattedData.zip].filter(Boolean).join(', ');
-                yPosition = drawText(cityStateZip, 50, yPosition, 'City, State ZIP');
-                // Insurance Information
-                yPosition -= 20;
-                page.drawText('Insurance Information', {
-                    x: 50,
-                    y: yPosition,
-                    size: 14,
-                    font: helveticaFont,
-                    color: rgb(0, 0, 0),
-                });
-                yPosition -= 30;
-                yPosition = drawText(formattedData.ins, 50, yPosition, 'Insurance Company');
-                yPosition = drawText(formattedData.policy, 50, yPosition, 'Policy Number');
-            }
+            // Generate PDF based on whether we have a template
+            const pdfDoc = templatePath
+                ? await this.generateTemplateBasedPDF(formattedData, templatePath)
+                : await this.generateBlankPDF(formattedData);
             // Add metadata
             pdfDoc.setTitle(formattedData.documentName || 'Vehicle Transfer Document');
             pdfDoc.setAuthor('PDF Generator');
@@ -213,8 +298,8 @@ export class PDFService {
                 ...Object.fromEntries(DATE_FIELDS.map(field => [field, formatDate(data[field], 'MM/DD/YYYY')])),
                 ...Object.fromEntries(SPECIAL_DATE_FIELDS.map(field => [field, formatDate(data[field], 'MMM DD, YYYY', 'EXP')]))
             };
-            // Initialize PDF document first
-            const pdfDoc = await PDFDocument.create();
+            // Initialize PDF document
+            let pdfDoc = await PDFDocument.create();
             const fonts = await this.loadFonts(pdfDoc);
             if (data.templatePath) {
                 // Load template
@@ -227,6 +312,10 @@ export class PDFService {
                             const field = form.getTextField(key);
                             if (field) {
                                 field.setText(value.toString());
+                                // Set font size 12 for first and last name fields
+                                if (key === 'first' || key === 'last') {
+                                    field.setFontSize(12);
+                                }
                             }
                         }
                     }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppError, ErrorCodes } from './errors';
+import { AppError, ErrorCodes } from './errors.js';
 // Define validation schemas
 export const templateDataSchema = z.object({
     // Vehicle Information

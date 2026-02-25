@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express'
-import { Database } from '../database'
-import { PDFService } from '../services/pdf-service'
-import { AppError, ErrorCodes } from '../lib/errors'
+import { Database } from '../database.js'
+import { PDFService } from '../services/pdf-service.js'
+import { AppError, ErrorCodes } from '../lib/errors.js'
 import path from 'path'
 import fs from 'fs/promises'
-import { ensureDirectoryExists, getUploadsPath, getDataRoot, resolveTemplatePath } from '../utils/file-system'
+import { ensureDirectoryExists, getUploadsPath, getDataRoot, resolveTemplatePath } from '../utils/file-system.js'
 
 export class TemplateController {
   static async upload(req: Request, res: Response, next: NextFunction) {

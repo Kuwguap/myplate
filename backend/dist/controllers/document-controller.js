@@ -1,7 +1,7 @@
-import { PDFService } from '../services/pdf-service';
-import { validateTemplateData } from '../lib/validation';
-import { AppError, ErrorCodes } from '../lib/errors';
-import path from 'path';
+import { PDFService } from '../services/pdf-service.js';
+import { validateTemplateData } from '../lib/validation.js';
+import { AppError, ErrorCodes } from '../lib/errors.js';
+import { resolveTemplatePath } from '../utils/file-system.js';
 export class DocumentController {
     static async create(req, res, next) {
         try {
@@ -115,11 +115,11 @@ export class DocumentController {
             try {
                 let pdfBytes;
                 if (template?.file_path) {
-                    const templatePath = path.resolve(process.cwd(), template.file_path);
+                    const templatePath = resolveTemplatePath(template.file_path);
                     pdfBytes = await PDFService.generatePDF(documentData, templatePath);
                 }
                 else {
-                    pdfBytes = await PDFService.createTemplate(documentData);
+                    pdfBytes = await PDFService.generatePDF(documentData);
                 }
                 await db.run('UPDATE documents SET status = ? WHERE id = ?', ['generated', id]);
                 res.setHeader('Content-Type', 'application/pdf');
@@ -138,7 +138,7 @@ export class DocumentController {
         try {
             const { data } = req.body;
             const validatedData = validateTemplateData(data);
-            const pdfBytes = await PDFService.createTemplate(validatedData);
+            const pdfBytes = await PDFService.generatePDF(validatedData);
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('Content-Disposition', 'inline');
             res.send(Buffer.from(pdfBytes));
