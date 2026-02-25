@@ -1,22 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PDF Generator Application
 
-## Getting Started
+A web-based PDF generator application with Telegram bot integration for creating vehicle transfer documents.
 
-First, run the development server:
+## 🚀 Quick Start
 
+**For detailed startup instructions, see [STARTUP.md](./STARTUP.md)**
+
+### Quick Overview
+
+This application consists of 4 components that need to be started:
+
+1. **Backend Server** (Port 3002) - Main API server
+2. **Telegram Server** (Port 3003) - Telegram webhook handler
+3. **Telegram Bot** - Python bot for Telegram integration
+4. **Frontend** (Port 3000) - Next.js web application
+
+### Start All Services
+
+Open 4 separate terminal windows:
+
+**Terminal 1 - Backend:**
 ```bash
+cd backend
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Terminal 2 - Telegram Server:**
+```bash
+cd backend
+npm install
+node telegram-server.js
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Terminal 3 - Telegram Bot:**
+```bash
+cd backend
+pip install -r requirements.txt
+python telegram_bot.py
+```
+
+**Terminal 4 - Frontend:**
+```bash
+npm install
+npm run dev
+```
+
+Then open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## 📖 Full Documentation
+
+See [STARTUP.md](./STARTUP.md) for complete startup instructions, troubleshooting, and configuration details.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
