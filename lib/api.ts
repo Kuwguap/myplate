@@ -148,6 +148,18 @@ export const api = {
     return response.blob()
   },
 
+  async downloadDocument(id: number): Promise<Blob> {
+    const response = await fetch(`${API_URL}/documents/${id}/preview`, {
+      method: 'GET',
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to download document')
+    }
+
+    return response.blob()
+  },
+
   async deleteDocument(id: number) {
     const response = await fetch(`${API_URL}/documents/${id}`, {
       method: 'DELETE',

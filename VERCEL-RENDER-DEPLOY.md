@@ -5,6 +5,15 @@ This guide walks you through deploying the PDF Generator with:
 - **Vercel** – Next.js frontend
 - **Render** – Node.js API (backend) + Python Telegram bot (background worker)
 
+## Project structure (monorepo)
+
+| Path | Purpose | Deploy to |
+|------|---------|-----------|
+| **Repo root** | Next.js app: `app/`, `components/`, `lib/`, `hooks/`, `public/`, `package.json`, `next.config.mjs` | **Vercel** (Root Directory = default / repo root) |
+| **backend/** | Node API + Python Telegram bot: `src/`, `telegram_bot.py`, `package.json`, `requirements.txt` | **Render** (Root Directory = `backend`) |
+
+Everything for the frontend is at repo root; nothing is under `src/` or a `frontend/` folder.
+
 ## Prerequisites
 
 - GitHub (or GitLab) repo with this project
@@ -65,7 +74,12 @@ This guide walks you through deploying the PDF Generator with:
 ## 2. Deploy frontend on Vercel
 
 1. In [Vercel](https://vercel.com), **Add New** → **Project** and import your repo.
-2. **Root Directory:** leave as repo root (where `package.json` and `app/` live).
+2. **Root Directory:** leave as **repo root** (default). The Next.js app is at the repo root:
+   - `app/` – pages and layout
+   - `components/`, `lib/`, `hooks/` – frontend code
+   - `public/` – static assets
+   - `package.json`, `next.config.mjs` – config
+   - Do **not** set a subdirectory (e.g. don’t use `frontend` or `src`).
 3. **Build command:** `npm run build` (default for Next.js).
 4. **Environment variables** (add before or after first deploy):
 

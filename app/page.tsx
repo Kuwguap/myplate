@@ -57,7 +57,7 @@ export default function PDFGenerator() {
   const [vinSearchInput, setVinSearchInput] = useState('');
   const [vinSearchResult, setVinSearchResult] = useState(null);
   const [vinSearchLoading, setVinSearchLoading] = useState(false);
-  const [vinSearchError, setVinSearchError] = useState(null);
+  const [vinSearchError, setVinSearchError] = useState<string | null>(null);
   const [pendingTelegramData, setPendingTelegramData] = useState(null)
 
   useEffect(() => {
@@ -230,7 +230,7 @@ export default function PDFGenerator() {
       NotificationService.logError('Failed to share document')
       toast({
         title: 'Error',
-        description: error.message || 'Failed to share document to Telegram',
+        description: error instanceof Error ? error.message : 'Failed to share document to Telegram',
         variant: 'destructive'
       })
     }
@@ -243,7 +243,7 @@ export default function PDFGenerator() {
     new Date(doc.created_at).toLocaleDateString().includes(searchQuery)
   )
 
-  const handleVinSearch = async (e) => {
+  const handleVinSearch = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (vinSearchInput.length !== 17) {
       setVinSearchError('VIN must be 17 characters long');

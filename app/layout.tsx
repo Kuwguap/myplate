@@ -23,7 +23,7 @@ export default function RootLayout({
   const [showAlert, setShowAlert] = React.useState(false)
   const [copiedText, setCopiedText] = React.useState('')
 
-  const handleCopy = async (text: string, type: 'Group' | 'DM') => {
+  const handleCopy = async (text: string, type: 'Group' | 'DM' | 'Ethernet') => {
     try {
       await navigator.clipboard.writeText(text)
       
