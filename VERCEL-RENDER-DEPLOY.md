@@ -14,6 +14,8 @@ This guide walks you through deploying the PDF Generator with:
 
 Everything for the frontend is at repo root; nothing is under `src/` or a `frontend/` folder.
 
+**Database:** The backend uses **SQLite** (file `backend/data.db`). **No Supabase or database URL** is required. If you later add Supabase/Postgres, you would configure that in the backend only.
+
 ## Prerequisites
 
 - GitHub (or GitLab) repo with this project

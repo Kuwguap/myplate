@@ -61,19 +61,23 @@ export default function PDFGenerator() {
   const [pendingTelegramData, setPendingTelegramData] = useState(null)
   const [expiryAlertShown, setExpiryAlertShown] = useState(false)
 
-  // Parse expiry from document data (exp1 or exp2 in MM/DD/YYYY) and check if past
+  // Parse expiry from document data (exp1/exp2: MM/DD/YYYY, exp3: EXP MMM DD, YYYY) and check if past
   const getDocumentExpiry = (doc: { data?: string | Record<string, unknown> }) => {
     const raw = doc.data
     const data = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return {} } })() : (raw || {})
-    const expStr = (data.exp1 || data.exp2 || data.exp3 || '') as string
+    const expStr = ((data.exp1 || data.exp2 || data.exp3) as string)?.trim()
     if (!expStr) return { date: null, isExpired: false }
-    const parts = expStr.replace(/\s*EXP\s*/i, '').split(/[/\s-]/)
-    if (parts.length < 3) return { date: null, isExpired: false }
-    const month = parseInt(parts[0], 10) - 1
-    const day = parseInt(parts[1], 10)
-    const year = parseInt(parts[2], 10)
-    if (isNaN(month) || isNaN(day) || isNaN(year)) return { date: null, isExpired: false }
-    const expDate = new Date(year, month, day)
+    const cleaned = expStr.replace(/\s*EXP\s*/i, '').trim()
+    let expDate: Date | null = null
+    const slashParts = cleaned.split('/')
+    if (slashParts.length >= 3) {
+      const month = parseInt(slashParts[0], 10) - 1
+      const day = parseInt(slashParts[1], 10)
+      const year = parseInt(slashParts[2], 10)
+      if (!isNaN(month) && !isNaN(day) && !isNaN(year)) expDate = new Date(year, month, day)
+    }
+    if (!expDate || isNaN(expDate.getTime())) expDate = new Date(cleaned)
+    if (!expDate || isNaN(expDate.getTime())) return { date: null, isExpired: false }
     expDate.setHours(23, 59, 59, 999)
     const now = new Date()
     return { date: expDate, isExpired: now > expDate }
@@ -577,6 +581,15 @@ export default function PDFGenerator() {
                               <div className="font-medium">{doc.name}</div>
                               <div className="text-sm text-muted-foreground">
                                 {doc.template} • {new Date(doc.created_at).toLocaleDateString()}
+                                {(() => {
+                                  const { date, isExpired } = getDocumentExpiry(doc)
+                                  if (!date) return null
+                                  return (
+                                    <span className={isExpired ? 'text-destructive font-medium' : ''}>
+                                      {' • '}{isExpired ? 'Expired' : `Expires ${date.toLocaleDateString()}`}
+                                    </span>
+                                  )
+                                })()}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
