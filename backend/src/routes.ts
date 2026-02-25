@@ -75,7 +75,7 @@ const TELEGRAM_BOT_TOKEN = process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN
 async function sendPDFToTelegram(pdfBytes: Uint8Array, fileName: string) {
   try {
     const formData = new FormData()
-    formData.append('document', new Blob([pdfBytes], { type: 'application/pdf' }), fileName)
+    formData.append('document', new Blob([Buffer.from(pdfBytes)], { type: 'application/pdf' }), fileName)
     formData.append('chat_id', TELEGRAM_CHAT_ID)
 
     const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, {
