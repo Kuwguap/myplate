@@ -1,5 +1,6 @@
 # Render Blueprint: Node API + Python Telegram bot
 # Deploy from repo root; set TELEGRAM_BOT_TOKEN and FRONTEND_URL in Render Dashboard after first deploy.
+# Optional: Add a persistent disk (see below) so documents/templates survive restarts and redeploys.
 
 services:
   # Backend API (Node/Express) - templates, documents, PDF generation, telegram webhook
@@ -15,7 +16,13 @@ services:
         value: production
       - key: FRONTEND_URL
         sync: false  # Set in Dashboard, e.g. https://your-app.vercel.app
+      # Optional: set DATA_PATH=/data in Dashboard if you attach a persistent disk at /data
       # PORT is set automatically by Render
+    # Optional: persist SQLite + uploads across restarts/redeploys. If enabled, set env DATA_PATH=/data.
+    # disk:
+    #   name: pdf-generator-data
+    #   mountPath: /data
+    #   sizeGB: 1
 
   # Python Telegram bot (background worker)
   - type: worker

@@ -16,6 +16,23 @@ Everything for the frontend is at repo root; nothing is under `src/` or a `front
 
 **Database:** The backend uses **SQLite** (file `backend/data.db`). **No Supabase or database URL** is required. If you later add Supabase/Postgres, you would configure that in the backend only.
 
+---
+
+## Where is data stored when hosted?
+
+| Where        | What runs there        | Where data lives |
+|-------------|------------------------|------------------|
+| **Vercel**  | Frontend (Next.js) only | **No data.** The site is static/SSR; it only calls the Render API. No DB, no file storage. |
+| **Render (API)** | Node backend (templates, documents, PDFs) | **SQLite file** `data.db` and uploads in the service’s filesystem. |
+
+**Important (Render):** By default, Render’s filesystem is **ephemeral**. On every **restart or redeploy**, the SQLite file and uploads are reset. Documents and templates will not persist unless you add a **persistent disk**:
+
+1. In the **Render Dashboard** → your **pdf-generator-api** service → **Disks** → add a disk (e.g. mount path `/data`, size 1 GB).
+2. In the same service → **Environment** → add `DATA_PATH=/data`.
+3. Redeploy. The backend will store `data.db` (and can store uploads under `/data`) so they survive restarts and redeploys.
+
+If you do **not** add a disk, the app still runs, but all documents and templates are lost on each deploy or restart.
+
 ## Prerequisites
 
 - GitHub (or GitLab) repo with this project

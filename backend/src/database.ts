@@ -13,7 +13,9 @@ export async function getDb(): Promise<Database> {
 export async function initializeDatabase(): Promise<Database> {
   if (_db) return _db
 
-  const dbPath = path.join(process.cwd(), 'data.db')
+  // On Render with a persistent disk, set DATA_PATH=/data (or your disk mount path) so data survives restarts
+  const dataDir = process.env.DATA_PATH || process.cwd()
+  const dbPath = path.join(dataDir, 'data.db')
   
   try {
     _db = await open({

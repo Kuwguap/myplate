@@ -4,7 +4,7 @@ import { PDFService } from '../services/pdf-service'
 import { AppError, ErrorCodes } from '../lib/errors'
 import path from 'path'
 import fs from 'fs/promises'
-import { ensureDirectoryExists, getUploadsPath } from '../utils/file-system'
+import { ensureDirectoryExists, getUploadsPath, getDataRoot, resolveTemplatePath } from '../utils/file-system'
 
 export class TemplateController {
   static async upload(req: Request, res: Response, next: NextFunction) {
@@ -59,8 +59,8 @@ export class TemplateController {
       await fs.rename(tempFilePath, finalPath)
       tempFilePath = null // Clear temp path since file was moved successfully
 
-      // Store relative path in database
-      const relativePath = path.relative(process.cwd(), finalPath)
+      // Store path relative to data root (so it works with DATA_PATH on Render)
+      const relativePath = path.relative(getDataRoot(), finalPath)
       const db = req.app.locals.db as Database
       
       // Save template to database
@@ -113,7 +113,7 @@ export class TemplateController {
       }
 
       // Get template fields
-      const validation = await PDFService.validateTemplate(template.file_path)
+      const validation = await PDFService.validateTemplate(resolveTemplatePath(template.file_path))
       
       res.json({
         ...template,
@@ -141,7 +141,7 @@ export class TemplateController {
 
       // Delete file
       try {
-        await fs.unlink(template.file_path)
+        await fs.unlink(resolveTemplatePath(template.file_path))
       } catch (error) {
         console.warn('Failed to delete template file:', error)
       }

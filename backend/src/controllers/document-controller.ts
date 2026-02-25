@@ -3,7 +3,7 @@ import { Database } from '../database'
 import { PDFService } from '../services/pdf-service'
 import { validateTemplateData } from '../lib/validation'
 import { AppError, ErrorCodes } from '../lib/errors'
-import path from 'path'
+import { resolveTemplatePath } from '../utils/file-system'
 
 export class DocumentController {
   static async create(req: Request, res: Response, next: NextFunction) {
@@ -168,7 +168,7 @@ export class DocumentController {
       try {
         let pdfBytes: Uint8Array
         if (template?.file_path) {
-          const templatePath = path.resolve(process.cwd(), template.file_path)
+          const templatePath = resolveTemplatePath(template.file_path)
           pdfBytes = await PDFService.generatePDF(documentData, templatePath)
         } else {
           pdfBytes = await PDFService.createTemplate(documentData)
