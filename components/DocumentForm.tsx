@@ -67,7 +67,9 @@ const FormField = ({ id, label, value, onChange, error, type = 'text', placehold
 
 interface DocumentFormProps {
   initialData?: any;
+  editingDocumentId?: number;
   onClose?: () => void;
+  onSaved?: () => void;
 }
 
 const BODY_TYPES = [
@@ -80,7 +82,7 @@ const BODY_TYPES = [
   'Semi-Trailer Truck 2DR'
 ] as const;
 
-export function DocumentForm({ initialData, onClose }: DocumentFormProps) {
+export function DocumentForm({ initialData, editingDocumentId, onClose, onSaved }: DocumentFormProps) {
   const formRef = React.useRef<HTMLFormElement>(null)
   const {
     formData,
@@ -157,6 +159,17 @@ export function DocumentForm({ initialData, onClose }: DocumentFormProps) {
         timestamp: new Date().toISOString()
       }
 
+      if (editingDocumentId) {
+        await api.updateDocument(editingDocumentId, {
+          name: formDataToSend.documentName,
+          data: formDataToSend,
+        })
+        toast({
+          title: 'Document updated',
+          description: 'Saving changes and generating PDF.',
+        })
+      }
+
       const blob = await api.generatePDF(formDataToSend)
       
       const url = URL.createObjectURL(blob)
@@ -170,10 +183,10 @@ export function DocumentForm({ initialData, onClose }: DocumentFormProps) {
 
       toast({
         title: 'Success',
-        description: 'PDF generated successfully',
+        description: editingDocumentId ? 'Document updated and PDF generated.' : 'PDF generated successfully',
       })
 
-      // Call onClose after successful submission
+      onSaved?.()
       onClose?.()
     } catch (error) {
       toast({

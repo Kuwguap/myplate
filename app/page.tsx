@@ -59,6 +59,25 @@ export default function PDFGenerator() {
   const [vinSearchLoading, setVinSearchLoading] = useState(false);
   const [vinSearchError, setVinSearchError] = useState<string | null>(null);
   const [pendingTelegramData, setPendingTelegramData] = useState(null)
+  const [expiryAlertShown, setExpiryAlertShown] = useState(false)
+
+  // Parse expiry from document data (exp1 or exp2 in MM/DD/YYYY) and check if past
+  const getDocumentExpiry = (doc: { data?: string | Record<string, unknown> }) => {
+    const raw = doc.data
+    const data = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return {} } })() : (raw || {})
+    const expStr = (data.exp1 || data.exp2 || data.exp3 || '') as string
+    if (!expStr) return { date: null, isExpired: false }
+    const parts = expStr.replace(/\s*EXP\s*/i, '').split(/[/\s-]/)
+    if (parts.length < 3) return { date: null, isExpired: false }
+    const month = parseInt(parts[0], 10) - 1
+    const day = parseInt(parts[1], 10)
+    const year = parseInt(parts[2], 10)
+    if (isNaN(month) || isNaN(day) || isNaN(year)) return { date: null, isExpired: false }
+    const expDate = new Date(year, month, day)
+    expDate.setHours(23, 59, 59, 999)
+    const now = new Date()
+    return { date: expDate, isExpired: now > expDate }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -88,6 +107,20 @@ export default function PDFGenerator() {
 
     fetchData()
   }, [])
+
+  // Alert when any document is expired (once per session)
+  useEffect(() => {
+    if (expiryAlertShown || !documents.length) return
+    const expired = documents.filter(doc => getDocumentExpiry(doc).isExpired)
+    if (expired.length > 0) {
+      setExpiryAlertShown(true)
+      toast({
+        title: 'Expired document(s)',
+        description: `${expired.length} document(s) have passed their expiry date. Consider updating or regenerating.`,
+        variant: 'destructive',
+      })
+    }
+  }, [documents, expiryAlertShown])
 
   useEffect(() => {
     const checkForNewFormData = async () => {
@@ -185,6 +218,18 @@ export default function PDFGenerator() {
     setEditingDocument(doc)
     setIsCreateDialogOpen(true)
     NotificationService.logDocumentActivity('Started editing', doc.name)
+  }
+
+  // Build form initial data when editing (API returns { id, name, template_id, data, created_at, status }; data may be JSON string)
+  const getEditInitialData = () => {
+    if (!editingDocument) return null
+    const raw = editingDocument.data
+    const data = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return {} } })() : (raw || {})
+    return {
+      ...data,
+      documentName: editingDocument.name ?? data.documentName,
+      templateId: editingDocument.template_id ?? data.templateId,
+    }
   }
 
   const handleSectionChange = (section: 'documents' | 'templates') => {
@@ -431,11 +476,15 @@ export default function PDFGenerator() {
                       </DialogDescription>
                     </DialogHeader>
                     <DocumentForm 
-                      initialData={pendingTelegramData || editingDocument}
+                      initialData={pendingTelegramData || getEditInitialData()}
+                      editingDocumentId={editingDocument?.id}
                       onClose={() => {
                         setIsCreateDialogOpen(false)
                         setEditingDocument(null)
                         setPendingTelegramData(null)
+                      }}
+                      onSaved={() => {
+                        api.getDocuments().then(setDocuments)
                       }}
                     />
                   </>
@@ -531,6 +580,9 @@ export default function PDFGenerator() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
+                              {getDocumentExpiry(doc).isExpired && (
+                                <Badge variant="destructive">Expired</Badge>
+                              )}
                               <Badge 
                                 variant={doc.status === 'completed' ? 'success' : 'outline'}
                               >

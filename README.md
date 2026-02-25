@@ -2,6 +2,15 @@
 
 A web-based PDF generator application with Telegram bot integration for creating vehicle transfer documents.
 
+## Data storage (no Supabase)
+
+This app **does not use Supabase**. The backend uses **SQLite** for persistence:
+
+- **Backend** (Node.js): stores templates and documents in a local SQLite file (`backend/data.db`). No database URL or Supabase key is required.
+- **Frontend**: talks to the backend API only; no direct database or Supabase connection.
+
+To use a different database (e.g. Supabase/Postgres), you would need to change the backend to use that database instead of SQLite.
+
 ## 🚀 Quick Start
 
 **For detailed startup instructions, see [STARTUP.md](./STARTUP.md)**

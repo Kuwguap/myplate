@@ -77,6 +77,25 @@ export const api = {
     return response.json()
   },
 
+  async updateDocument(id: number, data: { name?: string; data?: Record<string, unknown>; status?: string }) {
+    const response = await fetch(`${API_URL}/documents/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: data.name,
+        data: data.data,
+        status: data.status,
+      }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.message || 'Failed to update document')
+    }
+    return response.json()
+  },
+
   async getDocuments() {
     await checkServerConnection()
     const response = await fetch(`${API_URL}/documents`)
