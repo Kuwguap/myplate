@@ -5,8 +5,16 @@ import random
 import os
 import re
 import sys
-from typing import Dict, Any, Optional, Tuple
+import html
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime, timedelta
+
+# Optional: parse non-JSON text via OpenAI (set OPENAI_API_KEY)
+try:
+    from openai_parse import parse_text_to_json
+except ImportError:
+    def parse_text_to_json(_: str) -> Optional[Dict[str, Any]]:
+        return None
 
 # Configuration (use environment variables in production, e.g. on Render)
 # The main backend (Node API) serves /api/telegram (webhook + form-data). There is no separate "Telegram Server".
@@ -38,6 +46,10 @@ API_HEADERS = {
 
 # Store user data in a single structure per chat
 user_settings: Dict[int, Dict[str, Any]] = {}
+
+# Pending AI-parsed data: chat_id -> { form_data, slot_id, slot, template_label, document_name, vehicle_name, plate_info, car_info }
+# When user taps "Confirm" we run the PDF flow; "Edit" sends JSON back.
+pending_confirm: Dict[int, Dict[str, Any]] = {}
 
 # Increment ranges
 PLATE_SLOT1_INCREMENT = (100, 500)
@@ -377,38 +389,92 @@ def get_user_settings(chat_id: int) -> str:
     return "Current Settings:\n" + "\n".join(lines)
 
 def handle_settings_command(chat_id: int) -> None:
-    """Handle /settings command to show current settings"""
+    """Handle /settings command to show current settings with quick-action buttons"""
     settings = get_user_settings(chat_id)
-    send_message(chat_id, settings)
+    kb = _build_inline_keyboard([
+        [('📄 Templates', 'templates'), ('📝 Example', 'example')],
+    ])
+    send_message(chat_id, settings, reply_markup=kb)
 
 def get_updates(offset: int = None) -> Dict[str, Any]:
-    """Get updates from Telegram Bot API"""
+    """Get updates from Telegram Bot API (messages + callback_query for inline buttons)"""
     params = {
         'timeout': POLLING_TIMEOUT,
-        'allowed_updates': ['message']
+        'allowed_updates': ['message', 'callback_query']
     }
     if offset:
         params['offset'] = offset
-    
+
     response = requests.get(f'{TELEGRAM_API}/getUpdates', params=params)
     return response.json()
 
-def send_message(chat_id: int, text: str, parse_mode: str = 'HTML') -> None:
-    """Send message to a Telegram chat"""
+
+def _build_inline_keyboard(rows: List[List[Tuple[str, str]]]) -> Dict[str, Any]:
+    """Build inline keyboard: list of rows, each row list of (text, callback_data)."""
+    return {
+        'inline_keyboard': [
+            [{'text': t, 'callback_data': d} for t, d in row]
+            for row in rows
+        ]
+    }
+
+
+def send_message(
+    chat_id: int,
+    text: str,
+    parse_mode: str = 'HTML',
+    reply_markup: Optional[Dict[str, Any]] = None,
+    disable_web_page_preview: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Send message to a Telegram chat. Optional reply_markup for inline buttons. Returns result dict or None."""
     data = {
         'chat_id': chat_id,
         'text': text,
-        'parse_mode': parse_mode
+        'parse_mode': parse_mode,
+        'disable_web_page_preview': disable_web_page_preview,
     }
+    if reply_markup:
+        data['reply_markup'] = reply_markup
     try:
         response = requests.post(f'{TELEGRAM_API}/sendMessage', json=data)
         if response.ok:
             print(f'Message sent to {chat_id}')
-            print('Message content:', text)
+            return response.json().get('result')
         else:
             print(f'Failed to send message: {response.text}')
+        return None
     except Exception as e:
         print(f'Error sending message: {e}')
+        return None
+
+
+def answer_callback_query(callback_query_id: str, text: str = '', show_alert: bool = False) -> bool:
+    """Acknowledge a callback query (button tap)."""
+    try:
+        r = requests.post(f'{TELEGRAM_API}/answerCallbackQuery', json={
+            'callback_query_id': callback_query_id,
+            'text': text[:200] if text else None,
+            'show_alert': show_alert,
+        })
+        return r.ok
+    except Exception as e:
+        print(f'Error answering callback: {e}')
+        return False
+
+
+def edit_message_text(chat_id: int, message_id: int, text: str, parse_mode: str = 'HTML') -> bool:
+    """Edit a message (e.g. remove buttons after confirm)."""
+    try:
+        r = requests.post(f'{TELEGRAM_API}/editMessageText', json={
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': text,
+            'parse_mode': parse_mode,
+        })
+        return r.ok
+    except Exception as e:
+        print(f'Error editing message: {e}')
+        return False
 
 def handle_setplate_command(chat_id: int, slot_id: str, text: str) -> None:
     """Handle /setplate{slot} commands."""
@@ -521,12 +587,18 @@ Commands:
 • /usetemplate auto – enable automatic alternating'''
 
 
+def send_templates_message(chat_id: int) -> None:
+    """Send template assignments with inline Example button."""
+    text = format_template_assignments(chat_id)
+    send_message(chat_id, text, reply_markup=_build_inline_keyboard([[('📝 Example', 'example')]]))
+
+
 def handle_usetemplate_command(chat_id: int, text: str) -> None:
     """Handle /usetemplate commands for assignment and selection."""
     try:
         parts = text.strip().split()
         if len(parts) == 1:
-            send_message(chat_id, format_template_assignments(chat_id))
+            send_templates_message(chat_id)
             return
 
         subcommand = parts[1].lower()
@@ -579,35 +651,8 @@ Use /usetemplate {subcommand} to prioritize this template or /usetemplate auto t
         print(f'Error handling usetemplate command: {e}')
         send_message(chat_id, '❌ Error: Could not update template settings. Please try again later.')
 
-def handle_start_command(chat_id: int) -> None:
-    """Handle /start command"""
-    welcome_message = '''🚗 <b>Vehicle Transfer Document Generator</b> 🚗
-
-Welcome! I can help you create vehicle transfer documents using your uploaded PDF templates.
-
-<b>Template Setup</b>
-• /usetemplate 1 TEMPLATE_ID – assign Template Slot 1
-• /usetemplate 2 TEMPLATE_ID – assign Template Slot 2
-• /usetemplate 1 – switch to Template 1
-• /usetemplate 2 – switch to Template 2
-• /usetemplate auto – alternate between slots
-• /usetemplate – view assignments and available templates
-
-<b>Plate & Car Numbers</b>
-• /setplate1 066284V – digits ending with letters (adds 100-500)
-• /setcar1 2200198173 – base car number (adds 500-2500)
-• /setplate2 F219823 – letter prefix, digits after (adds 100-500)
-• /setcar2 2200198173 – base car number
-
-<b>General</b>
-• /settings – View current configuration
-• /start – Show this help
-
-<b>How to Use</b>
-1. Assign templates: /usetemplate 1 ID & /usetemplate 2 ID
-2. Configure plate and car numbers for each slot
-3. Send vehicle data in JSON format:
-<pre>{
+def _json_example_text() -> str:
+    return '''<pre>{
   "first_name": "MAURIZIO",
   "last_name": "BRUNO",
   "address": "89 BENNETT AVE",
@@ -622,16 +667,32 @@ Welcome! I can help you create vehicle transfer documents using your uploaded PD
   "color": "RED",
   "ins_company": "STATE FARM",
   "policy_number": "3405491-F22-32"
-}</pre>
+}</pre>'''
 
-<b>Notes</b>
-• The optional <code>body</code> field improves accuracy.
-• Template 1 plates end with letters; Template 2 plates start with letters.
-• Car numbers increase automatically by 500-2500 per document.
-• Dates and expirations are auto-filled.
-• Web UI: https://0b37-154-38-170-95.ngrok-free.app
-'''
-    send_message(chat_id, welcome_message)
+
+def handle_start_command(chat_id: int) -> None:
+    """Handle /start command with inline quick-action buttons"""
+    welcome_message = '''🚗 <b>Vehicle Transfer Document Generator</b> 🚗
+
+Welcome! I help you create vehicle transfer documents from your PDF templates.
+
+<b>Quick actions</b> — use the buttons below or send commands.
+
+<b>Commands</b>
+• /usetemplate – assign or switch templates
+• /setplate1, /setplate2 – set plate numbers
+• /setcar1, /setcar2 – set car numbers
+• /settings – view configuration
+
+<b>Usage</b>
+Send vehicle data as <b>JSON</b> (see Example) or as <b>plain text</b> — I'll parse it and ask you to confirm before generating the PDF.
+
+🔗 Web UI: <a href="{url}">{url}</a>'''.format(url=FRONTEND_URL)
+    keyboard = _build_inline_keyboard([
+        [('📋 Format help', 'help'), ('📝 Example', 'example')],
+        [('⚙️ Settings', 'settings'), ('📄 Templates', 'templates')],
+    ])
+    send_message(chat_id, welcome_message, reply_markup=keyboard)
 
 
 def determine_active_slot(chat_id: int) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
@@ -848,142 +909,104 @@ def generate_pdf(form_data: dict, template_id: Optional[str] = None) -> Tuple[bo
         print(f'Error generating PDF: {e}')
         return False, ''
 
-def handle_json_data(chat_id: int, text: str) -> None:
-    """Handle JSON data from user"""
-    try:
-        # Parse the JSON data
-        data = json.loads(text)
-        print(f'Received JSON data: {data}')
-        
-        # Get formatted dates
-        dates = get_formatted_dates()
-        print(f"Generated dates: {dates}")
-        
-        # Generate vehicle name and document name
-        vehicle_name = generate_vehicle_name(data)
-        document_name = generate_document_name(data)
-        print(f"Generated vehicle name: {vehicle_name}")
-        print(f"Generated document name: {document_name}")
+def _build_form_data_from_user_dict(chat_id: int, data: Dict[str, Any]) -> Optional[Tuple[Dict, str, Dict, str, str, str, str, str]]:
+    """
+    Build form_data and slot info from user-facing dict (from JSON or OpenAI).
+    Returns (form_data, slot_id, slot, template_label, document_name, vehicle_name, plate_info, car_info) or None.
+    """
+    dates = get_formatted_dates()
+    vehicle_name = generate_vehicle_name(data)
+    document_name = generate_document_name(data)
+    slot_id, slot = determine_active_slot(chat_id)
+    if not slot_id or not slot or not slot.get('templateId'):
+        return None
+    template_id = slot.get('templateId')
+    template_label = format_template_label(slot_id, slot)
 
-        # Determine template slot and ensure template assignment
-        slot_id, slot = determine_active_slot(chat_id)
-        if not slot_id or not slot or not slot.get('templateId'):
-            send_message(chat_id, '''❌ Error: No template assigned.
+    plate_value, next_plate_value = generate_sequence_value(slot_id, slot, 'plate')
+    if plate_value:
+        data = {**data, 'plate1': plate_value, 'plate2': plate_value, 'plate3': plate_value}
+        plate_info = f"Template {slot_id} Plate: {plate_value}\nNext queued: {next_plate_value or 'N/A'}"
+    else:
+        plate_info = f"⚠️ Template {slot_id} plate not set. Use /setplate{slot_id}."
+    car_value, next_car_value = generate_sequence_value(slot_id, slot, 'car')
+    if car_value:
+        data = {**data, 'car': car_value}
+        car_info = f"Template {slot_id} Car #: {car_value}\nNext queued: {next_car_value or 'N/A'}"
+    else:
+        car_info = f"⚠️ Template {slot_id} car number not set. Use /setcar{slot_id}."
 
-Use /usetemplate to assign templates to slot 1 or 2, then try again.''')
-            return
+    form_data = {
+        'first': capitalize_name(data.get('first_name', '')).strip() or 'NO NAME PROVIDED',
+        'last': capitalize_name(data.get('last_name', '')).strip() or 'NO NAME PROVIDED',
+        'address': capitalize_name(data.get('address', '')).strip() or 'NO ADDRESS PROVIDED',
+        'city': capitalize_name(data.get('city', '')).strip() or 'NO CITY PROVIDED',
+        'state': capitalize_name(data.get('state', '')).strip() or 'XX',
+        'zip': data.get('zip', '00000'),
+        'plate1': data.get('plate1', '').strip() or 'NO PLATE',
+        'vin1': (data.get('vin', '') or 'A' * 17).upper(),
+        'make1': data.get('make', '').strip() or 'NO MAKE',
+        'model1': data.get('model', '').strip() or 'NO MODEL',
+        'year': data.get('year', '2024'),
+        'documentName': document_name,
+        'vehiclename': vehicle_name,
+        'color': data.get('color', ''),
+        'body': data.get('body', ''),
+        'car': data.get('car', ''),
+        'plate2': data.get('plate2', ''),
+        'plate3': data.get('plate3', ''),
+        'vin2': data.get('vin', ''),
+        'vin3': data.get('vin', ''),
+        'make2': data.get('make', ''),
+        'model2': data.get('model', ''),
+        'ins': data.get('ins_company', ''),
+        'policy': data.get('policy_number', ''),
+        'date1': dates['current'],
+        'date2': dates['current'],
+        'exp1': dates['expiration'],
+        'exp2': dates['expiration'],
+        'exp3': dates['exp3'],
+        'templateId': template_id,
+        'templateSlot': slot_id,
+    }
+    form_data['vin1'] = re.sub(r'[^A-HJ-NPR-Z0-9]', 'A', form_data['vin1'])[:17].ljust(17, 'A')
+    for k in ('vin2', 'vin3'):
+        if form_data.get(k):
+            form_data[k] = re.sub(r'[^A-HJ-NPR-Z0-9]', 'A', form_data[k])[:17].ljust(17, 'A')
+    form_data['state'] = form_data['state'][:2].ljust(2, 'X')
+    if not re.match(r'^\d{5}(-\d{4})?$', form_data['zip']):
+        form_data['zip'] = '00000'
+    if not re.match(r'^\d{4}$', form_data['year']):
+        form_data['year'] = '2024'
+    return (form_data, slot_id, slot, template_label, document_name, vehicle_name, plate_info, car_info)
 
-        template_label = format_template_label(slot_id, slot)
 
-        # Handle plate number generation using configured slot
-        plate_value, next_plate_value = generate_sequence_value(slot_id, slot, 'plate')
-        if plate_value:
-            data['plate1'] = plate_value
-            data['plate2'] = plate_value
-            data['plate3'] = plate_value
-            plate_info = f'''Template {slot_id} Plate: {plate_value}
-Next queued plate: {next_plate_value or 'N/A'}'''
-        else:
-            plate_info = f"⚠️ Template {slot_id} plate not set. Use /setplate{slot_id}."
-
-        # Handle car number generation
-        car_value, next_car_value = generate_sequence_value(slot_id, slot, 'car')
-        if car_value:
-            data['car'] = car_value
-            car_info = f'''Template {slot_id} Car #: {car_value}
-Next queued car #: {next_car_value or 'N/A'}'''
-        else:
-            car_info = f"⚠️ Template {slot_id} car number not set. Use /setcar{slot_id}."
-        
-        # Transform the data to match form field names and validation requirements
-        form_data = {
-            # Required fields with validation
-            'first': capitalize_name(data.get('first_name', '')).strip() or 'NO NAME PROVIDED',
-            'last': capitalize_name(data.get('last_name', '')).strip() or 'NO NAME PROVIDED',
-            'address': capitalize_name(data.get('address', '')).strip() or 'NO ADDRESS PROVIDED',
-            'city': capitalize_name(data.get('city', '')).strip() or 'NO CITY PROVIDED',
-            'state': capitalize_name(data.get('state', '')).strip() or 'XX',
-            'zip': data.get('zip', '00000'),
-            'plate1': data.get('plate1', '').strip() or 'NO PLATE',
-            'vin1': (data.get('vin', '') or 'A' * 17).upper(),
-            'make1': data.get('make', '').strip() or 'NO MAKE',
-            'model1': data.get('model', '').strip() or 'NO MODEL',
-            'year': data.get('year', '2024'),
-            
-            # Optional fields
-            'documentName': document_name,
-            'vehiclename': vehicle_name,
-            'color': data.get('color', ''),
-            'body': data.get('body', ''),
-            'car': data.get('car', ''),
-            'plate2': data.get('plate2', ''),
-            'plate3': data.get('plate3', ''),
-            'vin2': data.get('vin', ''),
-            'vin3': data.get('vin', ''),
-            'make2': data.get('make', ''),
-            'model2': data.get('model', ''),
-            'ins': data.get('ins_company', ''),
-            'policy': data.get('policy_number', ''),
-            'date1': dates['current'],
-            'date2': dates['current'],
-            'exp1': dates['expiration'],
-            'exp2': dates['expiration'],
-            'exp3': dates['exp3']
+def _run_pdf_flow(
+    chat_id: int,
+    form_data: Dict[str, Any],
+    slot_id: str,
+    slot: Dict[str, Any],
+    template_label: str,
+    document_name: str,
+    vehicle_name: str,
+    plate_info: str,
+    car_info: str,
+) -> None:
+    """Send webhook, generate PDF, send document. Used after JSON parse or after Confirm."""
+    template_id = slot.get('templateId')
+    webhook_data = {
+        'message': {
+            'chat': {'id': chat_id},
+            'text': json.dumps(form_data),
+            'meta': {'templateSlot': slot_id, 'templateId': template_id},
         }
-        
-        # Ensure VIN is exactly 17 characters and contains valid characters
-        form_data['vin1'] = re.sub(r'[^A-HJ-NPR-Z0-9]', 'A', form_data['vin1'])[:17].ljust(17, 'A')
-        if form_data['vin2']:
-            form_data['vin2'] = re.sub(r'[^A-HJ-NPR-Z0-9]', 'A', form_data['vin2'])[:17].ljust(17, 'A')
-        if form_data['vin3']:
-            form_data['vin3'] = re.sub(r'[^A-HJ-NPR-Z0-9]', 'A', form_data['vin3'])[:17].ljust(17, 'A')
-            
-        # Ensure state is exactly 2 characters
-        form_data['state'] = form_data['state'][:2].ljust(2, 'X')
-        
-        # Ensure ZIP code format
-        if not re.match(r'^\d{5}(-\d{4})?$', form_data['zip']):
-            form_data['zip'] = '00000'
-            
-        # Ensure year is 4 digits
-        if not re.match(r'^\d{4}$', form_data['year']):
-            form_data['year'] = '2024'
-            
-        print(f'Transformed form data: {json.dumps(form_data, indent=2)}')
-        
-        # Apply template assignment
-        template_id = slot.get('templateId')
-        if template_id:
-            form_data['templateId'] = template_id
-            form_data['templateSlot'] = slot_id
-
-        # First, send data to telegram server for frontend sync
-        webhook_data = {
-            'message': {
-                'chat': {'id': chat_id},
-                'text': json.dumps(form_data),
-                'meta': {
-                    'templateSlot': slot_id,
-                    'templateId': template_id
-                }
-            }
-        }
-        print(f'Sending webhook data: {json.dumps(webhook_data, indent=2)}')
-        webhook_response = requests.post(f'{TELEGRAM_SERVER_URL}/telegram/webhook', json=webhook_data)
-        print(f'Webhook response: {webhook_response.status_code} - {webhook_response.text}')
-        
-        if webhook_response.status_code != 200:
-            print(f'Warning: Webhook request failed: {webhook_response.status_code} - {webhook_response.text}')
-        
-        # Then generate PDF using backend API
-        success, pdf_path = generate_pdf(form_data, template_id)
-        
-        if not success:
-            send_message(chat_id, '❌ Error: Could not generate PDF. Please try again later.')
-            return
-            
-        # Send the PDF document
-        caption = f'''📄 Document Details:
+    }
+    requests.post(f'{TELEGRAM_SERVER_URL}/telegram/webhook', json=webhook_data)
+    success, pdf_path = generate_pdf(form_data, template_id)
+    if not success:
+        send_message(chat_id, '❌ Error: Could not generate PDF. Please try again later.')
+        return
+    caption = f'''📄 Document Details:
 • Template: {template_label}
 • Slot: {slot_id.upper()}
 • Name: {document_name}
@@ -991,27 +1014,144 @@ Next queued car #: {next_car_value or 'N/A'}'''
 {plate_info}
 {car_info}
 
-🔗 View or edit in browser:
-{FRONTEND_URL}?chat_id={chat_id}&slot={slot_id}
+🔗 View or edit: {FRONTEND_URL}?chat_id={chat_id}&slot={slot_id}'''
+    if send_document(chat_id, pdf_path, caption):
+        try:
+            os.remove(pdf_path)
+        except Exception:
+            pass
+        save_user_preferences()
+    else:
+        send_message(chat_id, '❌ Error: Could not send the document. Please try again later.')
 
-Note: Please wait a few seconds before opening the link to ensure data is synchronized.'''
-        
-        if send_document(chat_id, pdf_path, caption):
-            # Clean up the temporary file
-            try:
-                os.remove(pdf_path)
-            except:
-                pass
-            # Save updated numbers
-            save_user_preferences()
-        else:
-            send_message(chat_id, '❌ Error: Could not send the document. Please try again later.')
-            
-    except json.JSONDecodeError:
-        send_message(chat_id, '❌ Error: Invalid JSON format. Please send a properly formatted JSON message.\n\nSend /start to see an example.')
+
+def handle_json_data(chat_id: int, text: str) -> None:
+    """Handle JSON or free-text vehicle data. Free text is parsed via OpenAI and user confirms or edits."""
+    try:
+        data = None
+        from_openai = False
+        try:
+            data = json.loads(text)
+            print(f'Received JSON data: {data}')
+        except json.JSONDecodeError:
+            parsed = parse_text_to_json(text)
+            if parsed:
+                data = parsed
+                from_openai = True
+                print(f'OpenAI parsed data: {data}')
+            else:
+                send_message(chat_id, '''❌ Invalid JSON format. Send a valid JSON or plain text with vehicle/owner info.
+
+Tap <b>Example</b> below for the expected format, or send /start for help.''', reply_markup=_build_inline_keyboard([[('📝 Example', 'example')]]))
+                return
+
+        if not data or not isinstance(data, dict):
+            send_message(chat_id, '❌ Could not read vehicle data. Send JSON or plain text.')
+            return
+
+        built = _build_form_data_from_user_dict(chat_id, data)
+        if not built:
+            send_message(chat_id, '''❌ No template assigned. Use /usetemplate to assign templates to slot 1 or 2, then try again.''')
+            return
+        form_data, slot_id, slot, template_label, document_name, vehicle_name, plate_info, car_info = built
+
+        if from_openai:
+            preview = f'''✅ <b>Parsed your text</b> — please confirm or edit:
+
+• <b>Name:</b> {form_data.get("first", "")} {form_data.get("last", "")}
+• <b>Vehicle:</b> {form_data.get("year", "")} {form_data.get("make1", "")} {form_data.get("model1", "")}
+• <b>VIN:</b> {form_data.get("vin1", "")}
+• <b>Template:</b> {template_label}
+
+Tap <b>Confirm</b> to generate PDF, or <b>Edit</b> to receive JSON and edit.'''
+            pending_confirm[chat_id] = {
+                'form_data': form_data,
+                'slot_id': slot_id,
+                'slot': slot,
+                'template_label': template_label,
+                'document_name': document_name,
+                'vehicle_name': vehicle_name,
+                'plate_info': plate_info,
+                'car_info': car_info,
+                'user_data': data,
+            }
+            send_message(chat_id, preview, reply_markup=_build_inline_keyboard([
+                [('✅ Confirm', 'confirm'), ('✏️ Edit', 'edit')],
+            ]))
+            return
+
+        _run_pdf_flow(chat_id, form_data, slot_id, slot, template_label, document_name, vehicle_name, plate_info, car_info)
+
     except Exception as e:
         print(f'Error handling message: {e}')
-        send_message(chat_id, '❌ Error: Something went wrong. Please try again later.')
+        send_message(chat_id, '❌ Something went wrong. Please try again or send /start for help.')
+
+
+def handle_callback_query(cq: Dict[str, Any]) -> None:
+    """Handle inline button callbacks: confirm, edit, help, example, settings, templates."""
+    cq_id = cq.get('id')
+    data = (cq.get('data') or '').strip()
+    message = cq.get('message') or {}
+    chat_id = message.get('chat', {}).get('id')
+    message_id = message.get('message_id')
+    if not chat_id:
+        answer_callback_query(cq_id, 'Error', show_alert=True)
+        return
+
+    answer_callback_query(cq_id)
+
+    if data == 'confirm':
+        pending = pending_confirm.pop(chat_id, None)
+        if not pending:
+            send_message(chat_id, '⏱ This confirmation expired. Send your data again.')
+            return
+        edit_message_text(chat_id, message_id, '⏳ Generating PDF…')
+        _run_pdf_flow(
+            chat_id,
+            pending['form_data'],
+            pending['slot_id'],
+            pending['slot'],
+            pending['template_label'],
+            pending['document_name'],
+            pending['vehicle_name'],
+            pending['plate_info'],
+            pending['car_info'],
+        )
+        edit_message_text(chat_id, message_id, '✅ Document generated and sent.')
+        return
+
+    if data == 'edit':
+        pending = pending_confirm.get(chat_id)
+        if pending and 'user_data' in pending:
+            json_str = html.escape(json.dumps(pending['user_data'], indent=2))
+            send_message(chat_id, f'''✏️ <b>Edit and resend</b> — copy this JSON, change any fields, then send it back:
+
+<pre>{json_str}</pre>''')
+        else:
+            send_message(chat_id, 'No pending data. Send your vehicle info again (JSON or plain text).')
+        return
+
+    if data == 'example':
+        send_message(chat_id, '📝 <b>Expected JSON format</b> (send this or plain text):\n\n' + _json_example_text())
+        return
+
+    if data == 'help':
+        send_message(chat_id, '''<b>Format help</b>
+• Send <b>JSON</b> with keys: first_name, last_name, address, city, state, zip, vin, year, make, model, body, color, ins_company, policy_number.
+• Or send <b>plain text</b> with the same info — I’ll parse it and ask you to confirm.
+• /start – full help and buttons
+• /usetemplate – templates
+• /settings – your config''')
+        return
+
+    if data == 'settings':
+        handle_settings_command(chat_id)
+        return
+
+    if data == 'templates':
+        send_templates_message(chat_id)
+        return
+
 
 def main():
     if not BOT_TOKEN:
@@ -1040,21 +1180,26 @@ def main():
                 continue
             
             for update in updates['result']:
+                # Inline button callback
+                callback_query = update.get('callback_query')
+                if callback_query:
+                    handle_callback_query(callback_query)
+                    offset = update['update_id'] + 1
+                    continue
+
                 message = update.get('message', {})
                 chat_id = message.get('chat', {}).get('id')
-                text = message.get('text', '')
-                
+                text = (message.get('text') or '').strip()
+
                 if chat_id:
-                    print(f'Received message from {chat_id}: {text}')
-                    
+                    print(f'Received message from {chat_id}: {text[:80]}...' if len(text) > 80 else f'Received message from {chat_id}: {text}')
+
                     lower_text = text.lower()
-                    
                     if lower_text.startswith('/setplate1'):
                         handle_setplate_command(chat_id, '1', text)
                     elif lower_text.startswith('/setplate2'):
                         handle_setplate_command(chat_id, '2', text)
                     elif lower_text.startswith('/setplate'):
-                        # Backwards compatibility for old command
                         handle_setplate_command(chat_id, '1', text)
                     elif lower_text.startswith('/setcar1'):
                         handle_setcar_command(chat_id, '1', text)
@@ -1070,8 +1215,7 @@ def main():
                         handle_start_command(chat_id)
                     else:
                         handle_json_data(chat_id, text)
-                
-                # Update offset to acknowledge processed update
+
                 offset = update['update_id'] + 1
         
         except Exception as e:

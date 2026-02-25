@@ -33,6 +33,7 @@ export function useFormState() {
     car: '',
     number: '',
     body: '',
+    bodyCustom: '',
     
     // Additional Vehicle Info
     plate2: '',

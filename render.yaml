@@ -40,3 +40,6 @@ services:
         sync: false  # Same as API_URL (backend serves /api/telegram)
       - key: FRONTEND_URL
         sync: false  # Set in Dashboard: https://your-app.vercel.app
+      # Optional: for parsing plain-text vehicle info (non-JSON) via OpenAI
+      - key: OPENAI_API_KEY
+        sync: false  # Set in Dashboard if you want "send plain text → parse → confirm" flow

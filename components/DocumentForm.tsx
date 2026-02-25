@@ -82,6 +82,14 @@ const BODY_TYPES = [
   'Semi-Trailer Truck 2DR'
 ] as const;
 
+const isPresetBody = (value: string) => (BODY_TYPES as readonly string[]).includes(value);
+/** Show custom input when user chose "Custom" or when body holds custom text (not a preset). */
+const showBodyCustomInput = (body: string) =>
+  body === 'custom' || (body !== '' && !isPresetBody(body));
+/** Select value: use preset if body is in list, otherwise "custom" so dropdown shows "Custom...". */
+const bodySelectValue = (body: string) =>
+  body && isPresetBody(body) ? body : (body ? 'custom' : '');
+
 export function DocumentForm({ initialData, editingDocumentId, onClose, onSaved }: DocumentFormProps) {
   const formRef = React.useRef<HTMLFormElement>(null)
   const {
@@ -370,8 +378,14 @@ export function DocumentForm({ initialData, editingDocumentId, onClose, onSaved 
                 </Label>
                 <div className="flex gap-2">
                   <Select
-                    value={formData.body || ''}
-                    onValueChange={(value) => handleInputChange('body', value)}
+                    value={bodySelectValue(formData.body || '')}
+                    onValueChange={(value) => {
+                      if (value === 'custom') {
+                        handleInputChange('body', 'custom');
+                      } else {
+                        handleInputChange('body', value);
+                      }
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select body type" />
@@ -385,13 +399,14 @@ export function DocumentForm({ initialData, editingDocumentId, onClose, onSaved 
                       <SelectItem value="custom">Custom...</SelectItem>
                     </SelectContent>
                   </Select>
-                  {formData.body === 'custom' && (
+                  {showBodyCustomInput(formData.body || '') && (
                     <Input
                       id="body-custom"
-                      value={formData.bodyCustom || ''}
+                      value={formData.body === 'custom' ? (formData.bodyCustom ?? '') : (formData.body ?? '')}
                       onChange={(e) => {
-                        handleInputChange('bodyCustom', e.target.value);
-                        handleInputChange('body', e.target.value);
+                        const v = e.target.value;
+                        handleInputChange('bodyCustom', v);
+                        handleInputChange('body', v);
                       }}
                       placeholder="Enter custom body type"
                       className={errors.body ? 'border-destructive' : ''}

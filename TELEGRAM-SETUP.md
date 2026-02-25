@@ -50,3 +50,14 @@ If the bot doesn’t work on Render, check:
 3. **TELEGRAM_BOT_TOKEN** is set and valid.
 
 After changing env vars, redeploy the **pdf-generator-telegram-bot** service.
+
+### Optional: plain-text parsing (OpenAI)
+
+If you set **`OPENAI_API_KEY`** on the bot service (Dashboard → pdf-generator-telegram-bot → Environment), users can send **plain text** with vehicle/owner info instead of JSON. The bot will:
+
+1. Parse the text with OpenAI into the expected structure.
+2. Show a preview with **Confirm** and **Edit** inline buttons.
+3. **Confirm** → generate and send the PDF.
+4. **Edit** → send back the JSON so the user can edit and resend.
+
+Without `OPENAI_API_KEY`, only valid JSON is accepted (same as before).
