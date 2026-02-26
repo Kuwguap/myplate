@@ -99,20 +99,22 @@ async function sendPDFToTelegram(pdfBytes: Uint8Array, fileName: string) {
 // PDF Generation routes
 router.post('/generate-pdf', async (req, res, next) => {
   try {
-    const formData = req.body
+    const formData = req.body || {}
     const db = await getDb()
-    
+    const docName = formData.documentName || (formData.first || formData.last ? `Document ${[formData.first, formData.last].filter(Boolean).join(' ')}` : 'document')
+    const templateId = formData.templateId != null ? formData.templateId : null
+
     // Create document record first
-    const result = await db.run(
+    await db.run(
       'INSERT INTO documents (name, template_id, data, status) VALUES (?, ?, ?, ?)',
-      [formData.documentName, formData.templateId, JSON.stringify(formData), 'completed']
+      [docName, templateId, JSON.stringify(formData), 'completed']
     )
 
     let pdfBytes: Uint8Array
 
-    if (formData.templateId) {
+    if (templateId != null && templateId !== '') {
       // Get template and generate PDF
-      const template = await db.get('SELECT * FROM templates WHERE id = ?', formData.templateId)
+      const template = await db.get('SELECT * FROM templates WHERE id = ?', templateId)
       if (!template) {
         throw new AppError('Template not found', ErrorCodes.TEMPLATE_NOT_FOUND, 404)
       }

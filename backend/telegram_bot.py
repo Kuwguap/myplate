@@ -856,16 +856,16 @@ def generate_pdf(form_data: dict, template_id: Optional[str] = None) -> Tuple[bo
         form_data['address'] = capitalize_name(form_data.get('address', ''))
         form_data['city'] = capitalize_name(form_data.get('city', ''))
         form_data['state'] = capitalize_name(form_data.get('state', ''))
-        form_data['vin'] = capitalize_name(form_data.get('vin', ''))
-            
-        # Add template ID if specified
-        if template_id:
-            form_data['templateId'] = template_id
-            
+        if form_data.get('vin1'):
+            form_data['vin1'] = capitalize_name(form_data['vin1'])
+        if template_id is not None:
+            form_data['templateId'] = int(template_id) if str(template_id).isdigit() else template_id
+
         response = requests.post(
             f'{API_URL}/generate-pdf',
             json=form_data,
-            headers=API_HEADERS
+            headers={**API_HEADERS, 'Content-Type': 'application/json'},
+            timeout=60,
         )
         
         if response.ok:
@@ -902,12 +902,41 @@ def generate_pdf(form_data: dict, template_id: Optional[str] = None) -> Tuple[bo
                 
             return True, filepath
         else:
-            print(f'PDF generation failed: {response.text}')
+            err_msg = response.text
+            try:
+                err_body = response.json()
+                err_msg = err_body.get('message') or err_msg
+            except Exception:
+                pass
+            print(f'PDF generation failed: status={response.status_code} body={response.text[:500]}')
+            _set_last_pdf_error(err_msg)
             return False, ''
-            
+
+    except requests.exceptions.Timeout:
+        print('Error generating PDF: request timeout')
+        _set_last_pdf_error('Server took too long. Try again.')
+        return False, ''
+    except requests.exceptions.RequestException as e:
+        print(f'Error generating PDF: {e}')
+        _set_last_pdf_error(str(e))
+        return False, ''
     except Exception as e:
         print(f'Error generating PDF: {e}')
+        _set_last_pdf_error(str(e))
         return False, ''
+
+
+_last_pdf_error: Optional[str] = None
+
+
+def _set_last_pdf_error(msg: str) -> None:
+    global _last_pdf_error
+    _last_pdf_error = msg
+
+
+def get_last_pdf_error() -> str:
+    """Last PDF error for user-facing message."""
+    return _last_pdf_error or 'Unknown error'
 
 def _build_form_data_from_user_dict(chat_id: int, data: Dict[str, Any]) -> Optional[Tuple[Dict, str, Dict, str, str, str, str, str]]:
     """
@@ -1002,10 +1031,22 @@ def _run_pdf_flow(
         }
     }
     requests.post(f'{TELEGRAM_SERVER_URL}/telegram/webhook', json=webhook_data)
-    success, pdf_path = generate_pdf(form_data, template_id)
-    if not success:
-        send_message(chat_id, '❌ Error: Could not generate PDF. Please try again later.')
-        return
+        success, pdf_path = generate_pdf(form_data, template_id)
+        if not success:
+            err = get_last_pdf_error()
+            if 'template not found' in err.lower():
+                send_message(chat_id, '''❌ Template not found on the server.
+
+Upload a template in the web app first, then use /usetemplate to assign it to slot 1 or 2.
+
+🔗 Web app: ''' + FRONTEND_URL)
+            elif 'load template' in err.lower() or 'failed to load' in err.lower():
+                send_message(chat_id, '''❌ The template file is missing on the server (e.g. after a redeploy).
+
+Re-upload the template in the web app and assign it again with /usetemplate.''')
+            else:
+                send_message(chat_id, f'❌ Could not generate PDF: {err[:300]}')
+            return
     caption = f'''📄 Document Details:
 • Template: {template_label}
 • Slot: {slot_id.upper()}
