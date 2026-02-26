@@ -1035,11 +1035,27 @@ def _run_pdf_flow(
     if not success:
         err = get_last_pdf_error()
         if 'template not found' in err.lower():
-            send_message(chat_id, '''❌ Template not found on the server.
+            # Bot and API are separate: only the API has the DB and /data. Refetch current templates.
+            current = get_available_templates()
+            if not current:
+                send_message(chat_id, '''❌ The server has no templates yet.
 
-Upload a template in the web app first, then use /usetemplate to assign it to slot 1 or 2.
+The bot uses the same API as the web app. Upload templates there first (they are stored on the API server, not on the bot).
+
+1. Open the web app and upload your PDF template(s).
+2. In Telegram, run /usetemplate to see template IDs.
+3. Assign one: /usetemplate 1 <ID> (or 2).
 
 🔗 Web app: ''' + FRONTEND_URL)
+            else:
+                ids = ', '.join(str(t.get('id')) for t in current)
+                send_message(chat_id, f'''❌ Template not found on the server.
+
+Your assigned template may be from another session or the server was reset. Run /usetemplate to see templates currently on the server and re-assign.
+
+Current template IDs on server: {ids}
+
+🔗 Upload new templates: {FRONTEND_URL}''')
         elif 'load template' in err.lower() or 'failed to load' in err.lower():
             send_message(chat_id, '''❌ The template file is missing on the server (e.g. after a redeploy).
 

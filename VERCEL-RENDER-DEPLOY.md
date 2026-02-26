@@ -148,7 +148,7 @@ For local development, keep using `NEXT_PUBLIC_API_URL=http://localhost:3002/api
 
 **Without a persistent disk (default):** Render’s filesystem is ephemeral. On each **restart or redeploy** of the API service, `data.db` and uploads are lost. The app works; documents and templates just don’t persist.
 
-**To persist data:** In Render Dashboard → **pdf-generator-api** → **Disks** → add a disk (e.g. mount path `/data`, 1 GB). In the same service → **Environment** → add `DATA_PATH=/data`. Redeploy. The backend will store `data.db` and uploads under `/data` so they survive restarts and redeploys.
+**To persist data:** In Render Dashboard → **pdf-generator-api** → **Disks** → add a disk (e.g. mount path `/data`, 1 GB). In the same service → **Environment** → add `DATA_PATH=/data`. Redeploy. The backend will store `data.db` and uploads under `/data` so they survive restarts and redeploys. Only the **API** service uses this disk; the Telegram bot does not access `/data`—it only calls the API. If the bot says "Template not found", the API’s database has no such template (upload templates via the web app, which uses the same API).
 
 **Backup and restore:** For a single database and one place for all stored files (so you can keep consistency from where you left off offline/online), see **[DATA-BACKUP-RESTORE.md](./DATA-BACKUP-RESTORE.md)**. It explains where data lives, how to backup `data.db` and `uploads/`, and how to restore or move that data.
 

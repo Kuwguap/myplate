@@ -61,3 +61,14 @@ If you set **`OPENAI_API_KEY`** on the bot service (Dashboard → pdf-generator-
 4. **Edit** → send back the JSON so the user can edit and resend.
 
 Without `OPENAI_API_KEY`, only valid JSON is accepted (same as before).
+
+### Why "Template not found" appears
+
+The **bot does not access** the API server’s disk or database. It only calls the API over HTTP. Templates and the database live only on the **API** service (pdf-generator-api).
+
+- If the **API** has a persistent disk at `/data` and `DATA_PATH=/data`, then the API’s `data.db` and uploaded template files are stored there.
+- The **bot** never reads or writes `/data`; it just sends requests to the API (e.g. `GET /api/templates`, `POST /api/generate-pdf`).
+- So “Template not found” means: the **API’s** database has no template with that ID. Common causes:
+  1. **No templates on the server** – Upload templates in the **web app** (same API). Then in Telegram run `/usetemplate` to see IDs and assign one.
+  2. **API restarted without persistent storage** – If the API had no disk or no `DATA_PATH`, its DB is ephemeral and is empty after a redeploy. Add a disk, set `DATA_PATH=/data` on the **API**, then upload templates again via the web app.
+  3. **Assigned ID from another server** – If you used the bot with a different API (e.g. local) and then switched to Render, run `/usetemplate` to see the **current** template IDs on the Render API and re-assign.
