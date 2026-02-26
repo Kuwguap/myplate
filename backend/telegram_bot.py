@@ -1031,22 +1031,22 @@ def _run_pdf_flow(
         }
     }
     requests.post(f'{TELEGRAM_SERVER_URL}/telegram/webhook', json=webhook_data)
-        success, pdf_path = generate_pdf(form_data, template_id)
-        if not success:
-            err = get_last_pdf_error()
-            if 'template not found' in err.lower():
-                send_message(chat_id, '''❌ Template not found on the server.
+    success, pdf_path = generate_pdf(form_data, template_id)
+    if not success:
+        err = get_last_pdf_error()
+        if 'template not found' in err.lower():
+            send_message(chat_id, '''❌ Template not found on the server.
 
 Upload a template in the web app first, then use /usetemplate to assign it to slot 1 or 2.
 
 🔗 Web app: ''' + FRONTEND_URL)
-            elif 'load template' in err.lower() or 'failed to load' in err.lower():
-                send_message(chat_id, '''❌ The template file is missing on the server (e.g. after a redeploy).
+        elif 'load template' in err.lower() or 'failed to load' in err.lower():
+            send_message(chat_id, '''❌ The template file is missing on the server (e.g. after a redeploy).
 
 Re-upload the template in the web app and assign it again with /usetemplate.''')
-            else:
-                send_message(chat_id, f'❌ Could not generate PDF: {err[:300]}')
-            return
+        else:
+            send_message(chat_id, f'❌ Could not generate PDF: {err[:300]}')
+        return
     caption = f'''📄 Document Details:
 • Template: {template_label}
 • Slot: {slot_id.upper()}
